@@ -8,7 +8,7 @@
 #include "protocol_factory.h"
 #include "protocol_apc.h"
 #include "protocol_cyberpower.h"
- 
+#include "protocol_megatec.h"
 #include "protocol_generic.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
@@ -18,9 +18,51 @@
 namespace esphome {
 namespace ups_hid {
 
+namespace {
+
+using ProtocolCreator = std::unique_ptr<UpsProtocolBase> (*)(UpsHidComponent *);
+
+/**
+ * Keeps the protocol translation units in the final binary.
+ *
+ * Each protocol registers itself with ProtocolFactory from a static
+ * constructor, and nothing else in the firmware references its symbols. When
+ * the component is linked as an archive, the linker only pulls in members that
+ * resolve an undefined symbol, so those objects get dropped, their constructors
+ * never run, and the factory comes up empty - which shows up at runtime as
+ * "No suitable protocol found for vendor 0x....".
+ *
+ * Taking one address per translation unit is what forces them to be kept. The
+ * volatile sink stops the compiler from discarding the references as dead code.
+ */
+void link_builtin_protocols() {
+  static const ProtocolCreator anchors[] = {
+      &create_apc_protocol,
+      &create_cyberpower_protocol,
+      &create_megatec_protocol,
+      &create_generic_protocol,
+  };
+
+  static volatile const ProtocolCreator *sink = nullptr;
+  sink = anchors;
+  (void) sink;
+}
+
+}  // namespace
+
 void UpsHidComponent::setup() {
   ESP_LOGCONFIG(TAG, log_messages::SETTING_UP);
-  
+
+  link_builtin_protocols();
+
+  const size_t registered = ProtocolFactory::get_all_protocols().size();
+  if (registered == 0) {
+    ESP_LOGE(TAG, "No UPS protocols registered - protocol detection cannot succeed");
+    mark_failed();
+    return;
+  }
+  ESP_LOGCONFIG(TAG, "  Registered protocols: %zu", registered);
+
   if (!initialize_transport()) {
     ESP_LOGE(TAG, log_messages::TRANSPORT_INIT_FAILED);
     mark_failed();

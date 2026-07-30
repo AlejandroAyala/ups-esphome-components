@@ -75,7 +75,7 @@ script:
             - "id(load_percentage).state"
             - "id(input_voltage).state"
             - "id(output_voltage).state"
-            - "id(input_frequency).state"
+            - "id(frequency).state"
           level: INFO
 
 interval:

@@ -107,5 +107,9 @@ class MegatecProtocol : public UpsProtocolBase {
   void drain_stale_input();
 };
 
+// Factory creator. Declared here so ups_hid.cpp can take its address and keep
+// this translation unit linked in - see link_builtin_protocols().
+std::unique_ptr<UpsProtocolBase> create_megatec_protocol(UpsHidComponent *parent);
+
 }  // namespace ups_hid
 }  // namespace esphome

@@ -96,5 +96,9 @@ private:
   float parse_frequency_from_report(const HidReport &report);
 };
 
+// Factory creator. Declared here so ups_hid.cpp can take its address and keep
+// this translation unit linked in - see link_builtin_protocols().
+std::unique_ptr<UpsProtocolBase> create_apc_protocol(UpsHidComponent *parent);
+
 } // namespace ups_hid
 } // namespace esphome

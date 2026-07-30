@@ -84,5 +84,9 @@ private:
     std::map<uint8_t, size_t> report_sizes_;
 };
 
+// Factory creator. Declared here so ups_hid.cpp can take its address and keep
+// this translation unit linked in - see link_builtin_protocols().
+std::unique_ptr<UpsProtocolBase> create_generic_protocol(UpsHidComponent *parent);
+
 } // namespace ups_hid  
 } // namespace esphome
