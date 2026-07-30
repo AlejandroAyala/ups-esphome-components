@@ -34,9 +34,17 @@ public:
                            const uint8_t* data, size_t data_len,
                            uint32_t timeout_ms = 1000) override;
     
-    esp_err_t get_string_descriptor(uint8_t string_index, 
+    bool supports_interrupt_transfer() const override { return true; }
+
+    esp_err_t interrupt_write(const uint8_t* data, size_t data_len,
+                            uint32_t timeout_ms = 1000) override;
+
+    esp_err_t interrupt_read(uint8_t* data, size_t* data_len,
+                           uint32_t timeout_ms = 1000) override;
+
+    esp_err_t get_string_descriptor(uint8_t string_index,
                                   std::string& result) override;
-    
+
     std::string get_last_error() const override;
 
 private:
@@ -57,6 +65,12 @@ private:
     std::string test_result_{"No test initiated"};
     bool test_running_{false};
     
+    // Pending reply for the interrupt endpoint pair, used by the Megatec/Q*
+    // simulation (armac framing: length byte followed by ASCII payload)
+    std::string pending_interrupt_reply_{};
+
+    void queue_megatec_reply(const std::string& command);
+
     // Simulated report generation
     void generate_battery_report(uint8_t report_id, uint8_t* data, size_t* data_len);
     void generate_power_report(uint8_t report_id, uint8_t* data, size_t* data_len);

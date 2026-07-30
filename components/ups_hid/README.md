@@ -10,7 +10,7 @@ A ESPHome component for monitoring UPS devices via USB connection on ESP32-S3. D
 - ⏱️ **Delay configuration**: Configure UPS shutdown, start, and reboot delays via USB HID
 - 🌈 **Visual status indicator**: RGB LED with customizable status colors
 - 🏠 **Home Assistant integration**: Automatic entity discovery via ESPHome API
-- 🔌 **Multi-protocol support**: APC HID, CyberPower HID, Generic HID
+- 🔌 **Multi-protocol support**: APC HID, CyberPower HID, Megatec Q1, Generic HID
 - 🎯 **Auto-detection**: Intelligent protocol detection based on USB vendor IDs
 - 🔧 **Robust USB handling**: ESP-IDF v5.4 compatible with 3-tier reconnection recovery
 - 🧪 **Simulation mode**: Test integration without physical UPS device
@@ -68,12 +68,14 @@ UPS USB Port (Type-B)  ←→  USB Cable  ←→  ESP32-S3 USB OTG Port
 |--------|--------|----------|-----------|----------------|
 | **APC** | Back-UPS ES Series, Smart-UPS | APC HID | 0x051D | ✅ Confirmed |
 | **CyberPower** | CP1500EPFCLCD, CP1000PFCLCD | CyberPower HID | 0x0764 | ✅ Confirmed |
+| **Richcomm-bridged Megatec** | Armac, Hikvision, Powercool, Vultech ("UPS USB Mon") | Megatec Q1 | 0x0925 | 🔁 Toggle only |
 | **Tripp Lite** | SMART1500LCDT, UPS series | Generic HID | 0x09AE | ⚠️ Limited |
 | **Eaton/MGE** | Ellipse, Evolution series | Generic HID | 0x06DA | ⚠️ Limited |
 | **Belkin** | Older USB UPS models | Generic HID | 0x050D | ⚠️ Limited |
 
 **Beeper Control Legend:**
 - ✅ **Confirmed**: Full beeper control tested and working (enable/disable/mute/test)
+- 🔁 **Toggle only**: Hardware exposes a single toggle; enable/disable resolve against the polled state
 - ⚠️ **Limited**: Basic support via generic HID (device-dependent functionality)
 
 ### Protocol Compatibility Matrix
@@ -82,7 +84,29 @@ UPS USB Port (Type-B)  ←→  USB Cable  ←→  ESP32-S3 USB OTG Port
 |----------|---------------|----------------|---------------|----------------|
 | **APC HID** | USB HID reports | ✅ | Battery, voltage, status | ✅ Beeper control |
 | **CyberPower HID** | Vendor-specific HID | ✅ | Extended sensors, config | ✅ Beeper control |
+| **Megatec Q1** | ASCII over interrupt endpoints | ✅ | Voltages, load, frequency, battery voltage, status flags | 🔁 Beeper toggle, battery test |
 | **Generic HID** | Standard HID-PDC | ✅ | Basic monitoring | ⚠️ Limited writes |
+
+#### Megatec Q1 protocol notes
+
+This protocol is not HID Power Device at all - the UPS exposes a HID-class
+interface that tunnels the classic Megatec ASCII command set (`Q1`, `F`, `I`)
+over its interrupt endpoints, wrapped in Richcomm's one-byte length framing.
+It mirrors NUT's `nutdrv_qx` driver with the `armac` USB subdriver.
+
+Consequences worth knowing before you wire up dashboards:
+
+- **No runtime value exists.** Megatec does not report one. The runtime sensor
+  stays unavailable; `configs/device_types/megatec_richcomm.yaml` ships a
+  template estimate you can calibrate.
+- **Battery percentage is derived, not measured.** It comes from battery voltage
+  against per-12V-block bounds (10.4V empty, 13.0V full), the same estimate NUT
+  publishes. A 24V pack resting at 27V therefore reads 100%.
+- **Manufacturer and model are often blank** in the `I` reply and fall back to
+  the USB string descriptors.
+- **Delay settings are not device state.** On Megatec the shutdown/start delays
+  are arguments to the shutdown command, so the number entities hold them
+  locally rather than writing them to the UPS.
 
 ## Configuration Reference
 
@@ -102,7 +126,7 @@ UPS USB Port (Type-B)  ←→  USB Cable  ←→  ESP32-S3 USB OTG Port
 ups_hid:
   id: ups_monitor                # Required component ID
   update_interval: 30s           # Polling interval (5s-60s)
-  protocol: auto                 # Protocol: auto, apc, cyberpower, generic
+  protocol: auto                 # Protocol: auto, apc, cyberpower, megatec, generic
   simulation_mode: false         # Testing without UPS hardware
 ```
 
@@ -131,6 +155,7 @@ ups_hid:
   protocol: auto                 # Default: automatic selection based on USB vendor ID
   # protocol: apc                # Force APC HID protocol
   # protocol: cyberpower         # Force CyberPower HID protocol  
+  # protocol: megatec            # Force Megatec Q1 protocol
   # protocol: generic            # Force Generic HID protocol
 ```
 
@@ -139,6 +164,7 @@ ups_hid:
 - **`auto`** (default): Automatically select protocol based on USB vendor ID
   - APC devices (0x051D): Uses APC HID Protocol
   - CyberPower (0x0764): Uses CyberPower HID Protocol
+  - Lakeview/Richcomm (0x0925): Uses Megatec Q1 Protocol
   - Unknown devices: Falls back to Generic HID Protocol
 
 - **`apc`**: Force APC HID Protocol
@@ -150,6 +176,11 @@ ups_hid:
   - Use for CyberPower CP series devices
   - Enhanced sensor support with 12+ additional sensors
   - Runtime scaling and advanced thresholds
+
+- **`megatec`**: Force Megatec Q1 Protocol
+  - Use for UPSes behind a Richcomm "UPS USB Mon" bridge (0x0925:0x1234)
+  - ASCII `Q1`/`F`/`I` commands over the interrupt endpoints, not HID reports
+  - Battery percentage is estimated from voltage; no runtime value is available
 
 - **`generic`**: Force Generic HID Protocol
   - Universal fallback for unknown UPS brands
@@ -220,6 +251,7 @@ logger:
     ups_hid: DEBUG
     ups_hid.apc: DEBUG
     ups_hid.cyberpower: DEBUG
+    ups_hid.megatec: DEBUG
 ```
 
 **Normal Operation**: Protocol detection < 500ms, consistent update intervals

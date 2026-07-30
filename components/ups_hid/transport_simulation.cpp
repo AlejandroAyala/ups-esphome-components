@@ -2,6 +2,7 @@
 #include "esphome/core/log.h"
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 
 namespace esphome {
 namespace ups_hid {
@@ -174,7 +175,102 @@ esp_err_t SimulatedTransport::hid_set_report(uint8_t report_type, uint8_t report
     return ESP_OK;
 }
 
-esp_err_t SimulatedTransport::get_string_descriptor(uint8_t string_index, 
+esp_err_t SimulatedTransport::interrupt_write(const uint8_t* data, size_t data_len,
+                                             uint32_t timeout_ms) {
+    if (!is_connected()) {
+        last_error_ = "Simulated transport not connected";
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!data || data_len < 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // armac framing: first byte carries the payload length, remainder is the
+    // ASCII command terminated by '\r' (and usually a trailing NUL)
+    std::string command;
+    for (size_t i = 1; i < data_len; i++) {
+        if (data[i] == '\r' || data[i] == '\0') {
+            break;
+        }
+        command += static_cast<char>(data[i]);
+    }
+
+    ESP_LOGV(SIM_TRANSPORT_TAG, "Simulated interrupt write: command '%s'", command.c_str());
+    queue_megatec_reply(command);
+    return ESP_OK;
+}
+
+esp_err_t SimulatedTransport::interrupt_read(uint8_t* data, size_t* data_len,
+                                            uint32_t timeout_ms) {
+    if (!is_connected()) {
+        last_error_ = "Simulated transport not connected";
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!data || !data_len || *data_len < 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (pending_interrupt_reply_.empty()) {
+        // Nothing queued - same as a device with an empty buffer
+        *data_len = 0;
+        return ESP_ERR_TIMEOUT;
+    }
+
+    // One packet: length/control byte followed by payload
+    size_t payload_len = std::min(pending_interrupt_reply_.size(), *data_len - 1);
+    payload_len = std::min(payload_len, static_cast<size_t>(0x3f));
+
+    data[0] = static_cast<uint8_t>(0xa0 | payload_len);
+    memcpy(data + 1, pending_interrupt_reply_.data(), payload_len);
+    *data_len = payload_len + 1;
+
+    pending_interrupt_reply_.erase(0, payload_len);
+    return ESP_OK;
+}
+
+void SimulatedTransport::queue_megatec_reply(const std::string& command) {
+    update_simulation_data();
+
+    char buffer[80];
+
+    if (command == "Q1") {
+        const bool on_battery = input_voltage_ < 100.0f;
+        const bool battery_low = battery_level_ < 30.0f;
+
+        // 24V pack: NUT's per-12V-block bounds (10.4V empty, 13.0V full)
+        const float battery_voltage = 20.8f + (battery_level_ / 100.0f) * (26.0f - 20.8f);
+
+        snprintf(buffer, sizeof(buffer),
+                 "(%05.1f %05.1f %05.1f %03d %04.1f %04.1f %04.1f %d%d000%d01\r",
+                 input_voltage_, 0.0f, output_voltage_,
+                 static_cast<int>(load_percent_), 50.0f, battery_voltage, 24.5f,
+                 on_battery ? 1 : 0, battery_low ? 1 : 0, test_running_ ? 1 : 0);
+        pending_interrupt_reply_ = buffer;
+    } else if (command == "F") {
+        // Rating: input voltage, input current, battery voltage, frequency
+        pending_interrupt_reply_ = "#230.0 005 24.00 50.0\r";
+    } else if (command == "I" || command == "ID") {
+        // Fixed-width fields: mfr [1..15], model [17..26], firmware [28..37]
+        pending_interrupt_reply_ = "#SIMULATED      Megatec Q1 V1.00     \r";
+    } else if (command == "Q") {
+        beeper_status_ = (beeper_status_ == "enabled") ? "disabled" : "enabled";
+        pending_interrupt_reply_.clear();
+    } else if (command == "T" || command == "TL") {
+        test_running_ = true;
+        test_result_ = "Test in progress";
+        pending_interrupt_reply_.clear();
+    } else if (command == "CT") {
+        test_running_ = false;
+        test_result_ = "No test initiated";
+        pending_interrupt_reply_.clear();
+    } else {
+        // Unsupported commands are silently ignored by real hardware
+        ESP_LOGV(SIM_TRANSPORT_TAG, "Simulated Megatec: ignoring command '%s'", command.c_str());
+        pending_interrupt_reply_.clear();
+    }
+}
+
+esp_err_t SimulatedTransport::get_string_descriptor(uint8_t string_index,
                                                   std::string& result) {
     if (!is_connected()) {
         last_error_ = "Simulated transport not connected";

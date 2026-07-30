@@ -131,6 +131,26 @@ esp_err_t UpsHidComponent::hid_set_report(uint8_t report_type, uint8_t report_id
   return transport_->hid_set_report(report_type, report_id, data, data_len, timeout_ms);
 }
 
+bool UpsHidComponent::supports_interrupt_transfer() const {
+  return transport_ && transport_->supports_interrupt_transfer();
+}
+
+esp_err_t UpsHidComponent::interrupt_write(const uint8_t* data, size_t data_len,
+                                          uint32_t timeout_ms) {
+  if (!transport_) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  return transport_->interrupt_write(data, data_len, timeout_ms);
+}
+
+esp_err_t UpsHidComponent::interrupt_read(uint8_t* data, size_t* data_len,
+                                         uint32_t timeout_ms) {
+  if (!transport_) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  return transport_->interrupt_read(data, data_len, timeout_ms);
+}
+
 esp_err_t UpsHidComponent::get_string_descriptor(uint8_t string_index, std::string& result) {
   if (!transport_) {
     return ESP_ERR_INVALID_STATE;
@@ -340,15 +360,25 @@ void UpsHidComponent::update_sensors() {
     binary_sensor::BinarySensor* sensor = sensor_pair.second;
     
     bool state = false;
-    
-    if (type == binary_sensor_type::ONLINE && ups_data_.power.input_voltage_valid()) {
-      state = true;
-    } else if (type == binary_sensor_type::ON_BATTERY && ups_data_.power.input_voltage_valid()) {
-      state = false; // Opposite of online
+
+    // Mirrors the public state getters, which cannot be reused here because
+    // they take data_mutex_ and it is already held
+    if (type == binary_sensor_type::ONLINE) {
+      state = ups_data_.power.is_online();
+    } else if (type == binary_sensor_type::ON_BATTERY) {
+      state = ups_data_.power.is_on_battery();
     } else if (type == binary_sensor_type::LOW_BATTERY) {
       state = ups_data_.battery.is_low();
+    } else if (type == binary_sensor_type::CHARGING) {
+      state = ups_data_.power.is_online() && ups_data_.battery.is_valid() &&
+              !std::isnan(ups_data_.battery.level) && ups_data_.battery.level < 100.0f;
+    } else if (type == binary_sensor_type::FAULT) {
+      state = ups_data_.power.has_fault() ||
+              (!ups_data_.power.is_valid() && !ups_data_.battery.is_valid());
+    } else if (type == binary_sensor_type::OVERLOAD) {
+      state = ups_data_.power.is_overloaded();
     }
-    
+
     sensor->publish_state(state);
   }
 #endif
@@ -672,14 +702,13 @@ void UpsHidComponent::set_fast_polling_mode(bool enable) {
 // Convenient state getters for lambda expressions (no sensor entities required)
 bool UpsHidComponent::is_online() const {
   std::lock_guard<std::mutex> lock(data_mutex_);
-  // UPS is online when input voltage is valid (same logic as binary sensor update)
-  return ups_data_.power.input_voltage_valid();
+  // Prefers a protocol-reported flag, otherwise infers from input voltage
+  return ups_data_.power.is_online();
 }
 
 bool UpsHidComponent::is_on_battery() const {
   std::lock_guard<std::mutex> lock(data_mutex_);
-  // UPS is on battery when NOT online (opposite of online state)
-  return !ups_data_.power.input_voltage_valid();
+  return ups_data_.power.is_on_battery();
 }
 
 bool UpsHidComponent::is_low_battery() const {
@@ -691,16 +720,16 @@ bool UpsHidComponent::is_low_battery() const {
 bool UpsHidComponent::is_charging() const {
   std::lock_guard<std::mutex> lock(data_mutex_);
   // Charging when online AND battery level is not 100%
-  return ups_data_.power.input_voltage_valid() && 
-         ups_data_.battery.is_valid() && 
-         !std::isnan(ups_data_.battery.level) && 
+  return ups_data_.power.is_online() &&
+         ups_data_.battery.is_valid() &&
+         !std::isnan(ups_data_.battery.level) &&
          ups_data_.battery.level < 100.0f;
 }
 
 bool UpsHidComponent::has_fault() const {
   std::lock_guard<std::mutex> lock(data_mutex_);
   // Check for various fault conditions based on available data
-  return ups_data_.power.is_input_out_of_range() || 
+  return ups_data_.power.has_fault() ||
          (!ups_data_.power.is_valid() && !ups_data_.battery.is_valid());
 }
 

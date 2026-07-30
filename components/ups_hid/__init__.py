@@ -32,6 +32,7 @@ KNOWN_VENDOR_IDS = {
     0x06DA: "MGE UPS Systems",
     0x075D: "Idowell",
     0x0764: "CyberPower",
+    0x0925: "Lakeview Research (Richcomm Megatec/Q*)",
     0x09AE: "Tripp Lite",
     0x09D6: "KSTAR",
 }
@@ -120,9 +121,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_PROTOCOL_TIMEOUT, default="15s"
             ): validate_protocol_timeout,
-            # Protocol selection: auto (default), apc, cyberpower, generic
+            # Protocol selection: auto (default), apc, cyberpower, megatec, generic
             cv.Optional(CONF_PROTOCOL, default="auto"): cv.one_of(
-                "auto", "apc", "cyberpower", "generic", lower=True
+                "auto", "apc", "cyberpower", "megatec", "generic", lower=True
             ),
             # Fallback nominal voltage (European 230V default for international compatibility)
             cv.Optional(CONF_FALLBACK_NOMINAL_VOLTAGE, default="230V"): validate_fallback_nominal_voltage,

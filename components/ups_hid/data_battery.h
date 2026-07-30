@@ -22,14 +22,21 @@ struct BatteryData {
   std::string status{};                // Battery status text
   std::string type{};                  // Battery chemistry type
   std::string mfr_date{};              // Battery manufacture date
-  
+
+  // Explicit low-battery flag, for protocols where the UPS asserts it directly
+  // (e.g. the Megatec Q1 status bits) rather than exposing a charge threshold.
+  // Matters most where the charge level itself is only an estimate.
+  bool status_flags_valid{false};
+  bool flag_low_battery{false};
+
   // Validation and utility methods
-  bool is_valid() const { 
+  bool is_valid() const {
     return !std::isnan(level) || !std::isnan(voltage) || !std::isnan(runtime_minutes);
   }
-  
+
   bool is_low() const {
-    return !std::isnan(level) && !std::isnan(charge_low) && level <= charge_low;
+    return (status_flags_valid && flag_low_battery) ||
+           (!std::isnan(level) && !std::isnan(charge_low) && level <= charge_low);
   }
   
   bool is_warning() const {

@@ -42,9 +42,17 @@ public:
                            const uint8_t* data, size_t data_len,
                            uint32_t timeout_ms = 1000) override;
     
-    esp_err_t get_string_descriptor(uint8_t string_index, 
+    bool supports_interrupt_transfer() const override;
+
+    esp_err_t interrupt_write(const uint8_t* data, size_t data_len,
+                            uint32_t timeout_ms = 1000) override;
+
+    esp_err_t interrupt_read(uint8_t* data, size_t* data_len,
+                           uint32_t timeout_ms = 1000) override;
+
+    esp_err_t get_string_descriptor(uint8_t string_index,
                                   std::string& result) override;
-    
+
     std::string get_last_error() const override;
 
 private:
@@ -60,6 +68,8 @@ private:
         uint16_t product_id{0};
         uint16_t max_packet_size_in{0};
         uint16_t max_packet_size_out{0};
+        bool ep_in_is_interrupt{false};
+        bool ep_out_is_interrupt{false};
         usb_speed_t speed{USB_SPEED_LOW};
     };
     

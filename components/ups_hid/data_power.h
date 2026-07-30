@@ -26,6 +26,13 @@ struct PowerData {
   
   // Power status information
   std::string status{};                // Power status text (Online, On Battery, etc.)
+
+  // Explicit status flags, for protocols that receive them directly (e.g. the
+  // Megatec Q1 status bits) instead of having to infer state from voltages.
+  // While status_flags_valid is false, state is inferred exactly as before.
+  bool status_flags_valid{false};
+  bool flag_on_battery{false};
+  bool flag_fault{false};
   
   // Power quality indicators
   bool input_voltage_valid() const {
@@ -48,6 +55,20 @@ struct PowerData {
   
   bool is_overloaded() const {
     return !std::isnan(load_percent) && load_percent > 95.0f;
+  }
+
+  // A reported flag only ever adds to the inferred state, so a protocol that
+  // supplies flags can never mask a problem the voltage readings reveal
+  bool is_on_battery() const {
+    return (status_flags_valid && flag_on_battery) || !input_voltage_valid();
+  }
+
+  bool is_online() const {
+    return !is_on_battery();
+  }
+
+  bool has_fault() const {
+    return (status_flags_valid && flag_fault) || is_input_out_of_range();
   }
   
   bool has_load_info() const {

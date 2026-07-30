@@ -23,7 +23,8 @@ struct DeviceInfo {
     PROTOCOL_UNKNOWN = 0,
     PROTOCOL_APC_HID,
     PROTOCOL_CYBERPOWER_HID,
-    PROTOCOL_GENERIC_HID
+    PROTOCOL_GENERIC_HID,
+    PROTOCOL_MEGATEC        // Megatec/Q* ASCII over Richcomm armac framing
   };
   
   DetectedProtocol detected_protocol{PROTOCOL_UNKNOWN};
@@ -60,6 +61,7 @@ struct DeviceInfo {
       case PROTOCOL_APC_HID: return "APC HID";
       case PROTOCOL_CYBERPOWER_HID: return "CyberPower HID";
       case PROTOCOL_GENERIC_HID: return "Generic HID";
+      case PROTOCOL_MEGATEC: return "Megatec Q1";
       default: return "Unknown";
     }
   }

@@ -278,7 +278,169 @@ esp_err_t Esp32UsbTransport::hid_set_report(uint8_t report_type, uint8_t report_
     return ret;
 }
 
-esp_err_t Esp32UsbTransport::get_string_descriptor(uint8_t string_index, 
+bool Esp32UsbTransport::supports_interrupt_transfer() const {
+    std::lock_guard<std::mutex> lock(device_mutex_);
+    return device_.ep_in != 0 && device_.ep_in_is_interrupt &&
+           device_.ep_out != 0 && device_.ep_out_is_interrupt;
+}
+
+esp_err_t Esp32UsbTransport::interrupt_write(const uint8_t* data, size_t data_len,
+                                            uint32_t timeout_ms) {
+    std::lock_guard<std::mutex> lock(device_mutex_);
+
+    if (!device_.dev_hdl) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!data || data_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (device_.ep_out == 0 || !device_.ep_out_is_interrupt) {
+        set_last_error("No interrupt OUT endpoint available");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    // Interrupt transfers cannot be split across packets here
+    if (data_len > device_.max_packet_size_out) {
+        set_last_error("Interrupt write exceeds endpoint max packet size");
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    usb_transfer_t *transfer = nullptr;
+    esp_err_t ret = usb_host_transfer_alloc(device_.max_packet_size_out, 0, &transfer);
+    if (ret != ESP_OK) {
+        set_last_error("Transfer alloc failed: " + std::string(esp_err_to_name(ret)));
+        return ret;
+    }
+
+    memcpy(transfer->data_buffer, data, data_len);
+    transfer->device_handle = device_.dev_hdl;
+    transfer->bEndpointAddress = device_.ep_out;
+    transfer->num_bytes = data_len;
+    transfer->timeout_ms = timeout_ms;
+
+    SemaphoreHandle_t done_sem = xSemaphoreCreateBinary();
+    if (!done_sem) {
+        usb_host_transfer_free(transfer);
+        return ESP_ERR_NO_MEM;
+    }
+
+    struct {
+        SemaphoreHandle_t sem;
+        esp_err_t result;
+        size_t actual_bytes;
+    } ctx = {done_sem, ESP_ERR_TIMEOUT, 0};
+
+    transfer->context = &ctx;
+    transfer->callback = [](usb_transfer_t *t) {
+        auto *c = static_cast<decltype(ctx)*>(t->context);
+        c->result = (t->status == USB_TRANSFER_STATUS_COMPLETED) ? ESP_OK : ESP_FAIL;
+        c->actual_bytes = t->actual_num_bytes;
+        xSemaphoreGive(c->sem);
+    };
+
+    ret = usb_host_transfer_submit(transfer);
+    if (ret == ESP_OK) {
+        if (xSemaphoreTake(done_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
+            ret = ctx.result;
+            if (ret == ESP_OK) {
+                ESP_LOGV(ESP32_USB_TAG, "Interrupt write: %zu bytes to EP 0x%02X",
+                         ctx.actual_bytes, device_.ep_out);
+            } else {
+                ESP_LOGW(ESP32_USB_TAG, "Interrupt write failed on EP 0x%02X", device_.ep_out);
+            }
+        } else {
+            ESP_LOGW(ESP32_USB_TAG, "Interrupt write timeout on EP 0x%02X", device_.ep_out);
+            ret = ESP_ERR_TIMEOUT;
+        }
+    } else {
+        ESP_LOGW(ESP32_USB_TAG, "Failed to submit interrupt write: %s", esp_err_to_name(ret));
+    }
+
+    vSemaphoreDelete(done_sem);
+    usb_host_transfer_free(transfer);
+    return ret;
+}
+
+esp_err_t Esp32UsbTransport::interrupt_read(uint8_t* data, size_t* data_len,
+                                           uint32_t timeout_ms) {
+    std::lock_guard<std::mutex> lock(device_mutex_);
+
+    if (!device_.dev_hdl) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!data || !data_len || *data_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (device_.ep_in == 0 || !device_.ep_in_is_interrupt) {
+        set_last_error("No interrupt IN endpoint available");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    usb_transfer_t *transfer = nullptr;
+    esp_err_t ret = usb_host_transfer_alloc(device_.max_packet_size_in, 0, &transfer);
+    if (ret != ESP_OK) {
+        set_last_error("Transfer alloc failed: " + std::string(esp_err_to_name(ret)));
+        return ret;
+    }
+
+    transfer->device_handle = device_.dev_hdl;
+    transfer->bEndpointAddress = device_.ep_in;
+    // IN transfers must request a multiple of the endpoint max packet size
+    transfer->num_bytes = device_.max_packet_size_in;
+    transfer->timeout_ms = timeout_ms;
+
+    SemaphoreHandle_t done_sem = xSemaphoreCreateBinary();
+    if (!done_sem) {
+        usb_host_transfer_free(transfer);
+        return ESP_ERR_NO_MEM;
+    }
+
+    struct {
+        SemaphoreHandle_t sem;
+        esp_err_t result;
+        size_t actual_bytes;
+    } ctx = {done_sem, ESP_ERR_TIMEOUT, 0};
+
+    transfer->context = &ctx;
+    transfer->callback = [](usb_transfer_t *t) {
+        auto *c = static_cast<decltype(ctx)*>(t->context);
+        c->result = (t->status == USB_TRANSFER_STATUS_COMPLETED) ? ESP_OK : ESP_FAIL;
+        c->actual_bytes = t->actual_num_bytes;
+        xSemaphoreGive(c->sem);
+    };
+
+    ret = usb_host_transfer_submit(transfer);
+    if (ret == ESP_OK) {
+        if (xSemaphoreTake(done_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
+            ret = ctx.result;
+            if (ret == ESP_OK && ctx.actual_bytes > 0) {
+                size_t copy_len = std::min(ctx.actual_bytes, *data_len);
+                memcpy(data, transfer->data_buffer, copy_len);
+                *data_len = copy_len;
+                ESP_LOGV(ESP32_USB_TAG, "Interrupt read: %zu bytes from EP 0x%02X",
+                         copy_len, device_.ep_in);
+            } else {
+                *data_len = 0;
+                if (ret == ESP_OK) {
+                    ret = ESP_FAIL;
+                }
+            }
+        } else {
+            // Expected whenever the device has nothing queued
+            ESP_LOGV(ESP32_USB_TAG, "Interrupt read timeout on EP 0x%02X", device_.ep_in);
+            *data_len = 0;
+            ret = ESP_ERR_TIMEOUT;
+        }
+    } else {
+        ESP_LOGW(ESP32_USB_TAG, "Failed to submit interrupt read: %s", esp_err_to_name(ret));
+        *data_len = 0;
+    }
+
+    vSemaphoreDelete(done_sem);
+    usb_host_transfer_free(transfer);
+    return ret;
+}
+
+esp_err_t Esp32UsbTransport::get_string_descriptor(uint8_t string_index,
                                                  std::string& result) {
     result.clear();
     
@@ -584,18 +746,22 @@ esp_err_t Esp32UsbTransport::find_endpoints() {
     for (int i = 0; i < intf_desc->bNumEndpoints; i++) {
         ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, i, config_desc->wTotalLength, &ep_offset);
         if (ep_desc) {
+            const bool is_interrupt =
+                (USB_EP_DESC_GET_XFERTYPE(ep_desc) == USB_TRANSFER_TYPE_INTR);
             if (USB_EP_DESC_GET_EP_DIR(ep_desc)) {
                 // IN endpoint (device to host)
                 device_.ep_in = ep_desc->bEndpointAddress;
                 device_.max_packet_size_in = ep_desc->wMaxPacketSize;
-                ESP_LOGD(ESP32_USB_TAG, "Found IN endpoint: 0x%02X (max packet size: %d)",
-                         device_.ep_in, device_.max_packet_size_in);
+                device_.ep_in_is_interrupt = is_interrupt;
+                ESP_LOGD(ESP32_USB_TAG, "Found IN endpoint: 0x%02X (max packet size: %d, interrupt: %s)",
+                         device_.ep_in, device_.max_packet_size_in, is_interrupt ? "yes" : "no");
             } else {
                 // OUT endpoint (host to device)
                 device_.ep_out = ep_desc->bEndpointAddress;
                 device_.max_packet_size_out = ep_desc->wMaxPacketSize;
-                ESP_LOGD(ESP32_USB_TAG, "Found OUT endpoint: 0x%02X (max packet size: %d)",
-                         device_.ep_out, device_.max_packet_size_out);
+                device_.ep_out_is_interrupt = is_interrupt;
+                ESP_LOGD(ESP32_USB_TAG, "Found OUT endpoint: 0x%02X (max packet size: %d, interrupt: %s)",
+                         device_.ep_out, device_.max_packet_size_out, is_interrupt ? "yes" : "no");
             }
         } else {
             ESP_LOGW(ESP32_USB_TAG, "Failed to parse endpoint %d", i);

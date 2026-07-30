@@ -38,8 +38,22 @@ public:
                                    const uint8_t* data, size_t data_len,
                                    uint32_t timeout_ms = 1000) = 0;
     
+    // Raw interrupt endpoint communication
+    //
+    // Required by protocols that tunnel serial-style ASCII commands over a
+    // HID-class interface rather than using HID reports - e.g. Megatec/Q*
+    // behind Richcomm/armac framing (NUT: nutdrv_qx armac subdriver).
+    // Transports without usable interrupt endpoints return ESP_ERR_NOT_SUPPORTED.
+    virtual bool supports_interrupt_transfer() const = 0;
+
+    virtual esp_err_t interrupt_write(const uint8_t* data, size_t data_len,
+                                    uint32_t timeout_ms = 1000) = 0;
+
+    virtual esp_err_t interrupt_read(uint8_t* data, size_t* data_len,
+                                   uint32_t timeout_ms = 1000) = 0;
+
     // String descriptors
-    virtual esp_err_t get_string_descriptor(uint8_t string_index, 
+    virtual esp_err_t get_string_descriptor(uint8_t string_index,
                                           std::string& result) = 0;
     
     // Error information

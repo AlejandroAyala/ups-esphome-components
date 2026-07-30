@@ -200,6 +200,7 @@ namespace binary_sensor_type {
     static constexpr const char* ONLINE = "online";
     static constexpr const char* ON_BATTERY = "on_battery";
     static constexpr const char* LOW_BATTERY = "low_battery";
+    static constexpr const char* FAULT = "fault";
     static constexpr const char* OVERLOAD = "overload";
     static constexpr const char* BUCK = "buck";
     static constexpr const char* BOOST = "boost";
@@ -240,7 +241,50 @@ namespace protocol {
     static constexpr const char* APC_HID = "APC HID";
     static constexpr const char* CYBERPOWER = "CyberPower";
     static constexpr const char* GENERIC = "Generic";
+    static constexpr const char* MEGATEC = "Megatec";
     static constexpr const char* NONE = "None";
+}
+
+// ==================== Megatec / Q* Protocol Constants ====================
+// Reference: NUT nutdrv_qx.c (megatec subdriver) and its armac USB subdriver
+namespace megatec {
+    // armac framing: command packets are a length byte (0xa0 | len) followed by
+    // the ASCII command including its terminating NUL. Replies arrive on the
+    // interrupt IN endpoint as a control byte whose low 6 bits hold the number
+    // of payload bytes available, followed by the payload itself.
+    static constexpr uint8_t PACKET_LENGTH_PREFIX = 0xa0;
+    static constexpr uint8_t PACKET_LENGTH_MASK = 0x3f;
+    static constexpr size_t PACKET_SIZE = 64;
+    static constexpr size_t MAX_RESPONSE_LENGTH = 128;
+    static constexpr size_t MAX_READ_CHUNKS = 8;
+
+    // Commands confirmed on Richcomm/Lakeview hardware
+    static constexpr const char* CMD_STATUS = "Q1\r";
+    static constexpr const char* CMD_RATING = "F\r";
+    static constexpr const char* CMD_INFO = "I\r";
+    static constexpr const char* CMD_BEEPER_TOGGLE = "Q\r";
+    static constexpr const char* CMD_TEST_QUICK = "T\r";
+    static constexpr const char* CMD_TEST_DEEP = "TL\r";
+    static constexpr const char* CMD_TEST_STOP = "CT\r";
+
+    // Q1 reply markers
+    static constexpr char STATUS_REPLY_PREFIX = '(';
+    static constexpr char INFO_REPLY_PREFIX = '#';
+    static constexpr size_t STATUS_FIELD_COUNT = 8;
+    static constexpr size_t STATUS_FLAG_COUNT = 8;
+
+    // I reply is fixed width: mfr [1..15], model [17..26], firmware [28..37]
+    static constexpr size_t INFO_MFR_OFFSET = 1;
+    static constexpr size_t INFO_MFR_LENGTH = 15;
+    static constexpr size_t INFO_MODEL_OFFSET = 17;
+    static constexpr size_t INFO_MODEL_LENGTH = 10;
+    static constexpr size_t INFO_FIRMWARE_OFFSET = 28;
+    static constexpr size_t INFO_FIRMWARE_LENGTH = 10;
+
+    // Battery charge estimation bounds per 12V block (NUT fallback values)
+    static constexpr float BLOCK_VOLTAGE_NOMINAL = 12.0f;
+    static constexpr float BLOCK_VOLTAGE_EMPTY = 10.4f;
+    static constexpr float BLOCK_VOLTAGE_FULL = 13.0f;
 }
 
 // ==================== USB/HID Constants ====================
@@ -248,9 +292,11 @@ namespace usb {
     // Common vendor IDs
     static constexpr uint16_t VENDOR_ID_APC = 0x051D;
     static constexpr uint16_t VENDOR_ID_CYBERPOWER = 0x0764;
-    
+    static constexpr uint16_t VENDOR_ID_LAKEVIEW = 0x0925;  // Richcomm-based Megatec/Q* UPSes
+
     // Common product IDs
     static constexpr uint16_t PRODUCT_ID_APC_BACK_UPS_ES_700 = 0x0002; // Back-UPS ES 700G (INPUT-ONLY)
+    static constexpr uint16_t PRODUCT_ID_LAKEVIEW_UPS_MON = 0x1234;    // "UPS USB Mon" Richcomm bridge
     
     // Common HID report IDs used across multiple UPS vendors
     static constexpr uint8_t REPORT_ID_SERIAL_NUMBER = 0x02;  // Serial number string descriptor index

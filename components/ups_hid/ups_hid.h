@@ -215,7 +215,14 @@ namespace esphome
                              const uint8_t* data, size_t data_len,
                              uint32_t timeout_ms = 1000);
       esp_err_t get_string_descriptor(uint8_t string_index, std::string& result);
-      
+
+      // Raw interrupt endpoint access for serial-over-HID protocols (Megatec/Q*)
+      bool supports_interrupt_transfer() const;
+      esp_err_t interrupt_write(const uint8_t* data, size_t data_len,
+                              uint32_t timeout_ms = 1000);
+      esp_err_t interrupt_read(uint8_t* data, size_t* data_len,
+                             uint32_t timeout_ms = 1000);
+
       // Transport information
       bool is_connected() const;
       uint16_t get_vendor_id() const; 

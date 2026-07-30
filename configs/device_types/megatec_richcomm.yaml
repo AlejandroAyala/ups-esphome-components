@@ -1,0 +1,84 @@
+# Megatec/Q* UPS Configuration (Richcomm USB bridge)
+# For UPSes behind a Lakeview Research/Richcomm "UPS USB Mon" bridge
+# (VID: 0x0925, PID: 0x1234) - the devices NUT drives with
+# nutdrv_qx + armac subdriver. Rebadged as Armac, Hikvision, Powercool,
+# Vultech and others.
+# Use with: packages: !include configs/device_types/megatec_richcomm.yaml
+#
+# IMPORTANT - protocol limitations, not implementation gaps:
+#   - No runtime estimate exists in Megatec/Q1. The runtime sensor stays
+#     unavailable; use the template estimate below if you need a figure.
+#   - Battery percentage is DERIVED from battery voltage against per-12V-block
+#     bounds (10.4V empty / 13.0V full), the same way NUT does it. Treat it as
+#     an approximation, not a device reading.
+#   - The beeper only supports a toggle. Enable/disable resolve against the
+#     state reported by Q1, so poll at least once before using them.
+#   - Manufacturer/model are usually blank in the Q1 'I' reply; they fall back
+#     to the USB string descriptors.
+
+substitutions:
+  device_description: "Megatec/Q1 UPS Monitor"
+  log_level: "INFO"
+
+  # Each Q1 exchange takes ~250ms, so there is no reason to poll aggressively
+  update_interval: "30s"
+  protocol_timeout: "15s"
+
+ups_hid:
+  id: ups_monitor
+  update_interval: ${update_interval}
+  protocol_timeout: ${protocol_timeout}
+  protocol: megatec
+  simulation_mode: ${simulation_mode}
+  # Most of these units are 230V/50Hz
+  fallback_nominal_voltage: 230V
+  # Uncomment if auto-detection fails:
+  # usb_vendor_id: 0x0925
+  # usb_product_id: 0x1234
+
+logger:
+  level: ${log_level}
+  logs:
+    ups_hid: INFO
+    ups_hid.megatec: DEBUG
+
+sensor:
+  # Rough runtime estimate. Megatec provides no runtime value at all, so this is
+  # derived from the load percentage and a hand-configured full-load runtime.
+  - platform: template
+    name: "UPS Runtime Estimate"
+    id: ups_runtime_estimate
+    unit_of_measurement: "min"
+    device_class: duration
+    state_class: measurement
+    accuracy_decimals: 0
+    lambda: |-
+      // Set full_load_minutes from your own measurement: run the UPS on
+      // battery at a known load and time it.
+      const float full_load_minutes = 5.0;
+      if (std::isnan(id(battery_level).state) || std::isnan(id(load_percentage).state)) {
+        return NAN;
+      }
+      float load = std::max(10.0f, id(load_percentage).state);
+      return (full_load_minutes * (100.0f / load)) * (id(battery_level).state / 100.0f);
+    update_interval: 60s
+
+script:
+  - id: megatec_detailed_status
+    then:
+      - logger.log:
+          format: "Megatec Status: Battery=%.1f%% (%.1fV/%.0fV est.), Load=%.0f%%, Input=%.1fV, Output=%.1fV, %.1fHz"
+          args:
+            - "id(battery_level).state"
+            - "id(battery_voltage).state"
+            - "id(battery_voltage_nominal).state"
+            - "id(load_percentage).state"
+            - "id(input_voltage).state"
+            - "id(output_voltage).state"
+            - "id(input_frequency).state"
+          level: INFO
+
+interval:
+  - interval: 120s
+    then:
+      - script.execute: megatec_detailed_status
