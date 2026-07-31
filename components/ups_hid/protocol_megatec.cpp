@@ -30,7 +30,7 @@ bool MegatecProtocol::send_command_raw(const std::string &command) {
   memcpy(packet + 1, command.data(), command.size());
   // packet[1 + command.size()] stays 0 - the terminating NUL
 
-  esp_err_t ret = parent_->interrupt_write(packet, payload_len + 1);
+  esp_err_t ret = parent_->interrupt_write(packet, payload_len + 1, megatec::WRITE_TIMEOUT_MS);
   if (ret != ESP_OK) {
     ESP_LOGW(MEGATEC_TAG, "Failed to send command: %s", esp_err_to_name(ret));
     return false;
@@ -45,7 +45,12 @@ bool MegatecProtocol::read_response(std::string &response) {
     uint8_t buffer[megatec::PACKET_SIZE] = {0};
     size_t buffer_len = sizeof(buffer);
 
-    esp_err_t ret = parent_->interrupt_read(buffer, &buffer_len);
+    // Only the first read waits for the UPS to turn the command around; any
+    // further packets are already queued behind it
+    const uint32_t timeout_ms =
+        (chunk == 0) ? megatec::FIRST_READ_TIMEOUT_MS : megatec::CHUNK_READ_TIMEOUT_MS;
+
+    esp_err_t ret = parent_->interrupt_read(buffer, &buffer_len, timeout_ms);
     if (ret != ESP_OK || buffer_len == 0) {
       // A timeout after we already have data means the reply simply ended
       // without a carriage return, which some units do
@@ -88,33 +93,16 @@ bool MegatecProtocol::read_response(std::string &response) {
   return !response.empty();
 }
 
-void MegatecProtocol::drain_stale_input() {
-  // Discard anything left over from a failed exchange so the next reply does
-  // not get misaligned
-  for (size_t i = 0; i < megatec::MAX_READ_CHUNKS; i++) {
-    uint8_t buffer[megatec::PACKET_SIZE];
-    size_t buffer_len = sizeof(buffer);
-    if (parent_->interrupt_read(buffer, &buffer_len, 100) != ESP_OK || buffer_len == 0) {
-      break;
-    }
-    ESP_LOGV(MEGATEC_TAG, "Drained %zu stale bytes", buffer_len);
-  }
-  needs_drain_ = false;
-}
-
 bool MegatecProtocol::transact(const std::string &command, std::string &response) {
-  if (needs_drain_) {
-    drain_stale_input();
-  }
-
+  // No input drain here on purpose. NUT only drains on armac's control-transfer
+  // path, not this interrupt path, and every drained read is a deliberate
+  // endpoint timeout - which is exactly the situation worth not provoking.
   if (!send_command_raw(command)) {
-    needs_drain_ = true;
     return false;
   }
 
   if (!read_response(response)) {
     ESP_LOGD(MEGATEC_TAG, "No reply to command '%s'", trim(command).c_str());
-    needs_drain_ = true;
     return false;
   }
 
@@ -123,9 +111,6 @@ bool MegatecProtocol::transact(const std::string &command, std::string &response
 }
 
 bool MegatecProtocol::transact_no_reply(const std::string &command) {
-  if (needs_drain_) {
-    drain_stale_input();
-  }
   // Control commands are not acknowledged by the UPS
   return send_command_raw(command);
 }

@@ -106,6 +106,13 @@ private:
                                     uint16_t wValue, uint16_t wIndex,
                                     uint8_t* data, size_t data_len,
                                     uint32_t timeout_ms);
+
+    // Aborts a transfer still queued on an endpoint after a timeout.
+    // Returns true once its callback has run and the transfer is safe to free.
+    bool abort_queued_transfer(uint8_t endpoint_address, SemaphoreHandle_t done_sem);
+
+    // How long to wait for the completion callback that flushing triggers
+    static constexpr uint32_t ENDPOINT_ABORT_TIMEOUT_MS = 200;
 };
 
 } // namespace ups_hid

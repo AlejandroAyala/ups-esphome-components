@@ -278,6 +278,26 @@ esp_err_t Esp32UsbTransport::hid_set_report(uint8_t report_type, uint8_t report_
     return ret;
 }
 
+bool Esp32UsbTransport::abort_queued_transfer(uint8_t endpoint_address, SemaphoreHandle_t done_sem) {
+    // A transfer that timed out is still queued on the endpoint. Freeing it here
+    // would leave the USB stack holding a dangling callback pointer and a pointer
+    // into the caller's stack frame, so the endpoint has to be aborted first:
+    // flushing completes any queued transfer and runs its callback.
+    usb_host_endpoint_halt(device_.dev_hdl, endpoint_address);
+    usb_host_endpoint_flush(device_.dev_hdl, endpoint_address);
+    usb_host_endpoint_clear(device_.dev_hdl, endpoint_address);
+
+    if (xSemaphoreTake(done_sem, pdMS_TO_TICKS(ENDPOINT_ABORT_TIMEOUT_MS)) == pdTRUE) {
+        return true;
+    }
+
+    // Callback never ran, so the stack may still own the transfer. Leaking it is
+    // the safe choice - freeing it risks a use-after-free inside the USB stack.
+    ESP_LOGW(ESP32_USB_TAG, "Endpoint 0x%02X did not complete after flush - leaking transfer",
+             endpoint_address);
+    return false;
+}
+
 bool Esp32UsbTransport::supports_interrupt_transfer() const {
     std::lock_guard<std::mutex> lock(device_mutex_);
     return device_.ep_in != 0 && device_.ep_in_is_interrupt &&
@@ -337,6 +357,8 @@ esp_err_t Esp32UsbTransport::interrupt_write(const uint8_t* data, size_t data_le
         xSemaphoreGive(c->sem);
     };
 
+    bool safe_to_free = true;
+
     ret = usb_host_transfer_submit(transfer);
     if (ret == ESP_OK) {
         if (xSemaphoreTake(done_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
@@ -349,6 +371,7 @@ esp_err_t Esp32UsbTransport::interrupt_write(const uint8_t* data, size_t data_le
             }
         } else {
             ESP_LOGW(ESP32_USB_TAG, "Interrupt write timeout on EP 0x%02X", device_.ep_out);
+            safe_to_free = abort_queued_transfer(device_.ep_out, done_sem);
             ret = ESP_ERR_TIMEOUT;
         }
     } else {
@@ -356,7 +379,9 @@ esp_err_t Esp32UsbTransport::interrupt_write(const uint8_t* data, size_t data_le
     }
 
     vSemaphoreDelete(done_sem);
-    usb_host_transfer_free(transfer);
+    if (safe_to_free) {
+        usb_host_transfer_free(transfer);
+    }
     return ret;
 }
 
@@ -408,6 +433,8 @@ esp_err_t Esp32UsbTransport::interrupt_read(uint8_t* data, size_t* data_len,
         xSemaphoreGive(c->sem);
     };
 
+    bool safe_to_free = true;
+
     ret = usb_host_transfer_submit(transfer);
     if (ret == ESP_OK) {
         if (xSemaphoreTake(done_sem, pdMS_TO_TICKS(timeout_ms)) == pdTRUE) {
@@ -425,8 +452,10 @@ esp_err_t Esp32UsbTransport::interrupt_read(uint8_t* data, size_t* data_len,
                 }
             }
         } else {
-            // Expected whenever the device has nothing queued
+            // Routine whenever the device has nothing to send, so this path must
+            // not free a transfer the USB stack still owns
             ESP_LOGV(ESP32_USB_TAG, "Interrupt read timeout on EP 0x%02X", device_.ep_in);
+            safe_to_free = abort_queued_transfer(device_.ep_in, done_sem);
             *data_len = 0;
             ret = ESP_ERR_TIMEOUT;
         }
@@ -436,7 +465,9 @@ esp_err_t Esp32UsbTransport::interrupt_read(uint8_t* data, size_t* data_len,
     }
 
     vSemaphoreDelete(done_sem);
-    usb_host_transfer_free(transfer);
+    if (safe_to_free) {
+        usb_host_transfer_free(transfer);
+    }
     return ret;
 }
 

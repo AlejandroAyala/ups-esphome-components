@@ -258,6 +258,13 @@ namespace megatec {
     static constexpr size_t MAX_RESPONSE_LENGTH = 128;
     static constexpr size_t MAX_READ_CHUNKS = 8;
 
+    // Hardware answers a command in roughly 250ms and normally delivers the whole
+    // reply in one 64-byte packet. These are bounded deliberately: read_data()
+    // runs on the ESPHome main loop, so a silent UPS must not stall it.
+    static constexpr uint32_t WRITE_TIMEOUT_MS = 500;
+    static constexpr uint32_t FIRST_READ_TIMEOUT_MS = 700;
+    static constexpr uint32_t CHUNK_READ_TIMEOUT_MS = 100;
+
     // Commands confirmed on Richcomm/Lakeview hardware
     static constexpr const char* CMD_STATUS = "Q1\r";
     static constexpr const char* CMD_RATING = "F\r";

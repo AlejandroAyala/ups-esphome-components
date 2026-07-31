@@ -100,11 +100,6 @@ class MegatecProtocol : public UpsProtocolBase {
   // Delay settings are command arguments on this protocol, not device state
   int shutdown_delay_seconds_{-1};
   int start_delay_seconds_{-1};
-
-  // Set when a transaction failed, triggering a buffer drain before the next one
-  bool needs_drain_{false};
-
-  void drain_stale_input();
 };
 
 // Factory creator. Declared here so ups_hid.cpp can take its address and keep
