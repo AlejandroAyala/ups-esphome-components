@@ -22,30 +22,74 @@ namespace {
 
 using ProtocolCreator = std::unique_ptr<UpsProtocolBase> (*)(UpsHidComponent *);
 
-/**
- * Keeps the protocol translation units in the final binary.
- *
- * Each protocol registers itself with ProtocolFactory from a static
- * constructor, and nothing else in the firmware references its symbols. When
- * the component is linked as an archive, the linker only pulls in members that
- * resolve an undefined symbol, so those objects get dropped, their constructors
- * never run, and the factory comes up empty - which shows up at runtime as
- * "No suitable protocol found for vendor 0x....".
- *
- * Taking one address per translation unit is what forces them to be kept. The
- * volatile sink stops the compiler from discarding the references as dead code.
- */
-void link_builtin_protocols() {
-  static const ProtocolCreator anchors[] = {
-      &create_apc_protocol,
-      &create_cyberpower_protocol,
-      &create_megatec_protocol,
-      &create_generic_protocol,
-  };
+struct BuiltinProtocol {
+  uint16_t vendor_id;  // 0 registers the protocol as a fallback
+  ProtocolCreator creator;
+  const char *name;
+  const char *description;
+  int priority;
+};
 
-  static volatile const ProtocolCreator *sink = nullptr;
-  sink = anchors;
-  (void) sink;
+/**
+ * The built-in protocols, registered explicitly.
+ *
+ * Each protocol also self-registers from a static constructor via
+ * REGISTER_UPS_PROTOCOL_FOR_VENDOR, but that cannot be relied upon: nothing
+ * else in the firmware references those translation units, and on ESP-IDF
+ * builds their .init_array entries are discarded, so the constructors never run
+ * and the factory comes up empty. That surfaced as "No suitable protocol found
+ * for vendor 0x...." with every protocol missing, not just one.
+ *
+ * Registering from a table that is reached through a normal function call
+ * removes the dependency on static initialisation entirely. Where the static
+ * constructors do work, the duplicate check below leaves their entries alone.
+ */
+const BuiltinProtocol BUILTIN_PROTOCOLS[] = {
+    {usb::VENDOR_ID_APC, &create_apc_protocol, "APC HID Protocol",
+     "APC Back-UPS and Smart-UPS HID protocol implementation with comprehensive sensor support",
+     100},
+    {usb::VENDOR_ID_CYBERPOWER, &create_cyberpower_protocol, "CyberPower HID Protocol",
+     "CyberPower CP series HID protocol with comprehensive sensor support and test functionality",
+     100},
+    {usb::VENDOR_ID_LAKEVIEW, &create_megatec_protocol, "Megatec Q1 Protocol",
+     "Megatec/Q* ASCII protocol tunnelled over Richcomm armac USB framing "
+     "(NUT nutdrv_qx megatec subdriver)",
+     100},
+    {0, &create_generic_protocol, "Generic HID Protocol",
+     "Universal HID protocol fallback for unknown UPS vendors with basic monitoring capabilities",
+     10},
+};
+
+bool protocol_already_registered(const char *name) {
+  for (const auto &entry : ProtocolFactory::get_all_protocols()) {
+    if (entry.second.name == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+size_t register_builtin_protocols() {
+  for (const auto &builtin : BUILTIN_PROTOCOLS) {
+    if (protocol_already_registered(builtin.name)) {
+      continue;  // a static constructor got there first
+    }
+
+    ProtocolFactory::ProtocolInfo info;
+    info.creator = builtin.creator;
+    info.name = builtin.name;
+    info.description = builtin.description;
+    info.priority = builtin.priority;
+
+    if (builtin.vendor_id != 0) {
+      info.supported_vendors = {builtin.vendor_id};
+      ProtocolFactory::register_protocol_for_vendor(builtin.vendor_id, info);
+    } else {
+      ProtocolFactory::register_fallback_protocol(info);
+    }
+  }
+
+  return ProtocolFactory::get_all_protocols().size();
 }
 
 }  // namespace
@@ -53,9 +97,7 @@ void link_builtin_protocols() {
 void UpsHidComponent::setup() {
   ESP_LOGCONFIG(TAG, log_messages::SETTING_UP);
 
-  link_builtin_protocols();
-
-  const size_t registered = ProtocolFactory::get_all_protocols().size();
+  const size_t registered = register_builtin_protocols();
   if (registered == 0) {
     ESP_LOGE(TAG, "No UPS protocols registered - protocol detection cannot succeed");
     mark_failed(LOG_STR("no UPS protocols registered"));
