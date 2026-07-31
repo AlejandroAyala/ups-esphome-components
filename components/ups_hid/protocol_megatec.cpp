@@ -169,6 +169,10 @@ bool MegatecProtocol::detect() {
     return false;
   }
 
+  // Logged before the exchange because this is the first interrupt transfer the
+  // firmware ever performs - if the USB stack faults, this is the last line out
+  ESP_LOGI(MEGATEC_TAG, "Probing with Q1 over interrupt endpoints");
+
   // A valid Q1 reply is the only reliable signal; these units ignore anything
   // they do not understand rather than returning an error
   std::string response;

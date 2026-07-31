@@ -118,7 +118,7 @@ void UpsHidComponent::setup() {
 
 void UpsHidComponent::update() {
   if (!transport_) {
-    ESP_LOGI(TAG, "Bringing up USB transport");
+    ESP_LOGI(TAG, "Bringing up USB transport (component %s)", component::VERSION);
     if (!initialize_transport()) {
       if (should_log_error(usb_error_limiter_)) {
         ESP_LOGE(TAG, log_messages::TRANSPORT_INIT_FAILED);
@@ -173,6 +173,7 @@ void UpsHidComponent::update() {
 
 void UpsHidComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "UPS HID Component:");
+  ESP_LOGCONFIG(TAG, "  Component Version: %s", component::VERSION);
   ESP_LOGCONFIG(TAG, "  Simulation Mode: %s", simulation_mode_ ? status::YES : status::NO);
 
   // Reported here rather than only in setup(), because this component is set up

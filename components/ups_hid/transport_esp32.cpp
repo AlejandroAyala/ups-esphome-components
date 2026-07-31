@@ -30,15 +30,20 @@ esp_err_t Esp32UsbTransport::initialize() {
         return ESP_OK;
     }
     
-    ESP_LOGI(ESP32_USB_TAG, "Initializing ESP32 USB transport");
-    
+    // These steps are logged individually on purpose: on the ESP32-S3 the USB
+    // host driver takes over the internal USB PHY, so if bring-up faults the
+    // last line logged is what localises it.
+    ESP_LOGI(ESP32_USB_TAG, "USB init step 1/2: installing USB host driver");
+
     esp_err_t ret = setup_usb_host();
     if (ret != ESP_OK) {
         set_last_error("Failed to setup USB host: " + std::string(esp_err_to_name(ret)));
         return ret;
     }
-    
-    // Register USB client for device events - connection will be asynchronous  
+
+    ESP_LOGI(ESP32_USB_TAG, "USB init step 2/2: registering client and scanning for devices");
+
+    // Register USB client for device events - connection will be asynchronous
     ret = find_and_open_device();
     if (ret != ESP_OK) {
         teardown_usb_host();

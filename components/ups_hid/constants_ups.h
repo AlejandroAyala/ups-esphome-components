@@ -237,6 +237,16 @@ namespace sensitivity {
 }
 
 // ==================== Protocol Names ====================
+// ==================== Component Revision ====================
+namespace component {
+    // Bumped by hand whenever this component changes. Printed by dump_config(),
+    // which ESPHome re-emits to every log client that connects, so any captured
+    // log identifies the running build at a glance. This is the reliable way to
+    // tell a current firmware from one the bootloader has rolled back - the
+    // ESPHome "compiled on" header is easy to miss when reconnecting.
+    static constexpr const char* VERSION = "rev7";
+}
+
 namespace protocol {
     static constexpr const char* APC_HID = "APC HID";
     static constexpr const char* CYBERPOWER = "CyberPower";
