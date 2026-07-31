@@ -58,14 +58,14 @@ void UpsHidComponent::setup() {
   const size_t registered = ProtocolFactory::get_all_protocols().size();
   if (registered == 0) {
     ESP_LOGE(TAG, "No UPS protocols registered - protocol detection cannot succeed");
-    mark_failed("no UPS protocols registered");
+    mark_failed(LOG_STR("no UPS protocols registered"));
     return;
   }
   ESP_LOGCONFIG(TAG, "  Registered protocols: %zu", registered);
 
   if (!initialize_transport()) {
     ESP_LOGE(TAG, log_messages::TRANSPORT_INIT_FAILED);
-    mark_failed("USB transport initialization failed");
+    mark_failed(LOG_STR("USB transport initialization failed"));
     return;
   }
   
@@ -92,7 +92,7 @@ void UpsHidComponent::update() {
       
       if (consecutive_failures_ > max_consecutive_failures_) {
         ESP_LOGE(TAG, log_messages::TOO_MANY_FAILURES);
-        mark_failed("UPS protocol detection failed repeatedly");
+        mark_failed(LOG_STR("UPS protocol detection failed repeatedly"));
       }
       return;
     }
