@@ -58,14 +58,14 @@ void UpsHidComponent::setup() {
   const size_t registered = ProtocolFactory::get_all_protocols().size();
   if (registered == 0) {
     ESP_LOGE(TAG, "No UPS protocols registered - protocol detection cannot succeed");
-    mark_failed();
+    mark_failed("no UPS protocols registered");
     return;
   }
   ESP_LOGCONFIG(TAG, "  Registered protocols: %zu", registered);
 
   if (!initialize_transport()) {
     ESP_LOGE(TAG, log_messages::TRANSPORT_INIT_FAILED);
-    mark_failed();
+    mark_failed("USB transport initialization failed");
     return;
   }
   
@@ -92,7 +92,7 @@ void UpsHidComponent::update() {
       
       if (consecutive_failures_ > max_consecutive_failures_) {
         ESP_LOGE(TAG, log_messages::TOO_MANY_FAILURES);
-        mark_failed();
+        mark_failed("UPS protocol detection failed repeatedly");
       }
       return;
     }
@@ -121,7 +121,11 @@ void UpsHidComponent::update() {
 void UpsHidComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "UPS HID Component:");
   ESP_LOGCONFIG(TAG, "  Simulation Mode: %s", simulation_mode_ ? status::YES : status::NO);
-  
+
+  // Reported here rather than only in setup(), because this component is set up
+  // before WiFi and so its setup() logs never reach a network log viewer
+  ESP_LOGCONFIG(TAG, "  Registered Protocols: %zu", ProtocolFactory::get_all_protocols().size());
+
   if (transport_ && transport_->is_connected()) {
     ESP_LOGCONFIG(TAG, "  USB Vendor ID: 0x%04X", transport_->get_vendor_id());
     ESP_LOGCONFIG(TAG, "  USB Product ID: 0x%04X", transport_->get_product_id());
@@ -141,6 +145,15 @@ void UpsHidComponent::dump_config() {
     }
   } else {
     ESP_LOGCONFIG(TAG, "  Status: %s", status::DISCONNECTED);
+    // Distinguishes "setup aborted before the transport existed" from
+    // "transport was created but could not open the device"
+    if (!transport_) {
+      ESP_LOGCONFIG(TAG, "  Transport: not created - setup aborted early");
+    } else {
+      const std::string last_error = transport_->get_last_error();
+      ESP_LOGCONFIG(TAG, "  Transport Error: %s",
+                    last_error.empty() ? "none reported (no USB device found)" : last_error.c_str());
+    }
   }
 
 #ifdef USE_SENSOR

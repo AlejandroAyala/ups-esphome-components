@@ -18,7 +18,10 @@
 
 substitutions:
   device_description: "Megatec/Q1 UPS Monitor"
-  log_level: "INFO"
+  # DEBUG during bring-up. Note that ESPHome ranks CONFIG as *more* verbose than
+  # INFO, so an INFO ceiling hides dump_config() and the protocol diagnostics
+  # entirely - drop to INFO only once the UPS is reporting correctly.
+  log_level: "DEBUG"
 
   # Each Q1 exchange takes ~250ms, so there is no reason to poll aggressively
   update_interval: "30s"
@@ -39,8 +42,10 @@ ups_hid:
 logger:
   level: ${log_level}
   logs:
-    ups_hid: INFO
+    ups_hid: DEBUG
+    ups_hid.factory: DEBUG
     ups_hid.megatec: DEBUG
+    ups_hid.esp32_usb: DEBUG
 
 sensor:
   # Rough runtime estimate. Megatec provides no runtime value at all, so this is
