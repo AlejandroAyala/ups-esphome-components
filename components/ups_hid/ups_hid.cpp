@@ -105,18 +105,29 @@ void UpsHidComponent::setup() {
   }
   ESP_LOGCONFIG(TAG, "  Registered protocols: %zu", registered);
 
-  if (!initialize_transport()) {
-    ESP_LOGE(TAG, log_messages::TRANSPORT_INIT_FAILED);
-    mark_failed(LOG_STR("USB transport initialization failed"));
-    return;
-  }
-  
-  // Protocol detection is deferred to update() method to handle asynchronous USB enumeration
+  // USB transport startup and protocol detection are both deferred to update().
+  //
+  // This component is set up before WiFi, so anything that crashes or hangs
+  // while bringing up the USB host takes the device down before the API exists:
+  // the failure is invisible over the network, and resetting inside the
+  // safe_mode window makes the bootloader roll the firmware back, which hides
+  // the evidence. Deferring means the device always finishes booting and any
+  // USB fault is reported over the air instead.
   ESP_LOGCONFIG(TAG, log_messages::SETUP_COMPLETE);
 }
 
 void UpsHidComponent::update() {
-  if (!transport_ || !transport_->is_connected()) {
+  if (!transport_) {
+    ESP_LOGI(TAG, "Bringing up USB transport");
+    if (!initialize_transport()) {
+      if (should_log_error(usb_error_limiter_)) {
+        ESP_LOGE(TAG, log_messages::TRANSPORT_INIT_FAILED);
+      }
+      return;  // retried on the next update rather than failing permanently
+    }
+  }
+
+  if (!transport_->is_connected()) {
     // Device not connected yet - normal during startup or after disconnection
     ESP_LOGD(TAG, log_messages::WAITING_FOR_DEVICE);
     return;
