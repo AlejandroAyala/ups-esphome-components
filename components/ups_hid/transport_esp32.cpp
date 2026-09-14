@@ -785,13 +785,16 @@ esp_err_t Esp32UsbTransport::find_endpoints() {
         return ESP_ERR_NOT_FOUND;
     }
     
-    // Parse endpoints correctly using ESP-IDF approach
     const usb_ep_desc_t *ep_desc = nullptr;
-    int ep_offset = offset;
     
     ESP_LOGD(ESP32_USB_TAG, "Interface has %d endpoints", intf_desc->bNumEndpoints);
     
     for (int i = 0; i < intf_desc->bNumEndpoints; i++) {
+        // The lookup walks from the interface descriptor but advances the offset
+        // it is given, so each call needs a fresh copy of the interface offset.
+        // Sharing one overshot wTotalLength and lost every endpoint after the
+        // first - on Richcomm UPSes, the interrupt OUT endpoint.
+        int ep_offset = offset;
         ep_desc = usb_parse_endpoint_descriptor_by_index(intf_desc, i, config_desc->wTotalLength, &ep_offset);
         if (ep_desc) {
             const bool is_interrupt =

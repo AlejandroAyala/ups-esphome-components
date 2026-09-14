@@ -249,7 +249,7 @@ namespace component {
     // log identifies the running build at a glance. This is the reliable way to
     // tell a current firmware from one the bootloader has rolled back - the
     // ESPHome "compiled on" header is easy to miss when reconnecting.
-    static constexpr const char* VERSION = "rev9";
+    static constexpr const char* VERSION = "rev10";
 }
 
 namespace protocol {
