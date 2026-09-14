@@ -530,10 +530,3 @@ std::unique_ptr<UpsProtocolBase> create_megatec_protocol(UpsHidComponent *parent
 
 }  // namespace ups_hid
 }  // namespace esphome
-
-// Register Megatec/Q* protocol for Lakeview Research vendor ID 0x0925
-REGISTER_UPS_PROTOCOL_FOR_VENDOR(esphome::ups_hid::usb::VENDOR_ID_LAKEVIEW, megatec_q1_protocol,
-                                 esphome::ups_hid::create_megatec_protocol, "Megatec Q1 Protocol",
-                                 "Megatec/Q* ASCII protocol tunnelled over Richcomm armac USB "
-                                 "framing (NUT nutdrv_qx megatec subdriver)",
-                                 100);

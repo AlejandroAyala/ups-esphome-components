@@ -2335,6 +2335,3 @@ std::unique_ptr<UpsProtocolBase> create_apc_protocol(UpsHidComponent* parent) {
 
 } // namespace ups_hid
 } // namespace esphome
-
-// Register APC protocol for vendor ID 0x051D
-REGISTER_UPS_PROTOCOL_FOR_VENDOR(0x051D, apc_hid_protocol, esphome::ups_hid::create_apc_protocol, "APC HID Protocol", "APC Back-UPS and Smart-UPS HID protocol implementation with comprehensive sensor support", 100);

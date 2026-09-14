@@ -55,19 +55,28 @@ comment in `protocol_megatec.h` for wire format and the reference captures.
 
 ## Hard-won gotchas
 
-### 1. Static-constructor self-registration does not work on ESP-IDF
+### 1. No work in static constructors — especially no logging
 
-`REGISTER_UPS_PROTOCOL_FOR_VENDOR` creates a static object whose constructor
-registers with `ProtocolFactory`. **Those constructors never run in ESP-IDF
-builds** — the object files link fine (symbols resolve) but their `.init_array`
-entries are discarded, leaving the factory empty. Symptom: `No suitable protocol
-found for vendor 0x....` with *every* protocol missing, and `Registered
-Protocols: 0` in `dump_config`.
+Protocols used to self-register through a `REGISTER_UPS_PROTOCOL_FOR_VENDOR`
+macro: a static object whose constructor called `ProtocolFactory`. It failed
+both ways:
 
-Built-in protocols are therefore registered **explicitly** from the
-`BUILTIN_PROTOCOLS` table in `ups_hid.cpp`. **Add new built-in protocols to that
-table**, not just via the macro. The macro is retained and a name-based duplicate
-check means whichever mechanism fires first wins.
+- While nothing referenced a protocol's translation unit, the linker dropped the
+  archive member and the constructor never ran: `Registered Protocols: 0`.
+- Once `ups_hid.cpp` referenced the creators, the constructors ran in
+  `do_global_ctors`, **before `app_main()`**. `ProtocolFactory` logs, ESPHome's
+  logger did not exist yet, and the chip panicked (`LoadProhibited` in
+  `Logger::level_for()`). That boot loop made `safe_mode` roll back every build
+  from 008e1f1 to rev8 — so it looked like the new firmware was never flashed.
+
+The macros are gone. Built-in protocols are registered explicitly from the
+`BUILTIN_PROTOCOLS` table in `ups_hid.cpp`, called from `setup()`. **Add new
+protocols to that table.** Keep constructors of any global or static object
+trivial: no logging, no ESPHome calls.
+
+Crashes before `app_main()` never reach the network, so over-the-air logs show
+only the rolled-back firmware. A USB serial capture (ESPHome Web Serial) of the
+first boot after an OTA is what shows them.
 
 ### 2. `setup()` runs before WiFi — its logs are unreachable over the network
 
@@ -166,8 +175,8 @@ Stubs needed: `esp_err.h`, `esphome/core/{component,log,helpers,defines,applicat
 This approach also supports real behavioural tests: link the protocol against a
 fake transport and drive it with captured device bytes. That is how the Megatec
 parsers were validated (59 checks against a real `nutdrv_qx -DDDDD` capture), and
-how explicit registration was proven to work with static constructors compiled out
-(`-D'REGISTER_UPS_PROTOCOL_FOR_VENDOR(a,b,c,d,e,f)='`).
+how explicit registration was proven to work. A stub compile cannot catch
+startup-order faults such as logging from a static constructor.
 
 `tests/` holds pytest config-validation tests that require the `esphome` CLI.
 

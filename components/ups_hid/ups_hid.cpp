@@ -31,18 +31,13 @@ struct BuiltinProtocol {
 };
 
 /**
- * The built-in protocols, registered explicitly.
+ * The built-in protocols, registered from setup().
  *
- * Each protocol also self-registers from a static constructor via
- * REGISTER_UPS_PROTOCOL_FOR_VENDOR, but that cannot be relied upon: nothing
- * else in the firmware references those translation units, and on ESP-IDF
- * builds their .init_array entries are discarded, so the constructors never run
- * and the factory comes up empty. That surfaced as "No suitable protocol found
- * for vendor 0x...." with every protocol missing, not just one.
- *
- * Registering from a table that is reached through a normal function call
- * removes the dependency on static initialisation entirely. Where the static
- * constructors do work, the duplicate check below leaves their entries alone.
+ * Registration must not happen from static constructors. When nothing
+ * referenced a protocol's translation unit the linker dropped it and its
+ * constructor never ran (zero protocols); once referenced, the constructor ran
+ * in do_global_ctors before app_main(), logged before ESPHome's logger existed,
+ * and panicked - a boot loop that safe_mode rolled back to the previous build.
  */
 const BuiltinProtocol BUILTIN_PROTOCOLS[] = {
     {usb::VENDOR_ID_APC, &create_apc_protocol, "APC HID Protocol",
@@ -60,21 +55,8 @@ const BuiltinProtocol BUILTIN_PROTOCOLS[] = {
      10},
 };
 
-bool protocol_already_registered(const char *name) {
-  for (const auto &entry : ProtocolFactory::get_all_protocols()) {
-    if (entry.second.name == name) {
-      return true;
-    }
-  }
-  return false;
-}
-
 size_t register_builtin_protocols() {
   for (const auto &builtin : BUILTIN_PROTOCOLS) {
-    if (protocol_already_registered(builtin.name)) {
-      continue;  // a static constructor got there first
-    }
-
     ProtocolFactory::ProtocolInfo info;
     info.creator = builtin.creator;
     info.name = builtin.name;

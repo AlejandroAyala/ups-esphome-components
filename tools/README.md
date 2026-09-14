@@ -100,22 +100,27 @@ Comprehensive test script for validating the NUT server component functionality.
 
 ## Protocol Development
 
-The UPS HID component uses a modern self-registering protocol system. New protocols automatically register themselves using macros:
+Protocols are registered explicitly from the `BUILTIN_PROTOCOLS` table in `ups_hid.cpp`, which `setup()` walks at startup.
 
 ### Adding New Vendor-Specific Protocols
 
 1. Create a new protocol class inheriting from `UpsProtocolBase`
 2. Implement required methods: `detect()`, `initialize()`, `read_data()`
-3. Register the protocol using the registration macro:
+3. Add a creator function, declared in your protocol header:
 
    ```cpp
-   // At the end of your protocol .cpp file
-   REGISTER_UPS_PROTOCOL_FOR_VENDOR(0x1234, my_protocol, 
-       esphome::ups_hid::create_my_protocol, 
-       "My Protocol Name", 
-       "Description of my protocol", 
-       100);  // Priority
+   std::unique_ptr<UpsProtocolBase> create_my_protocol(UpsHidComponent *parent) {
+     return std::make_unique<MyProtocol>(parent);
+   }
    ```
+
+4. Add an entry to `BUILTIN_PROTOCOLS` in `ups_hid.cpp`:
+
+   ```cpp
+   {0x1234, &create_my_protocol, "My Protocol Name", "Description of my protocol", 100},
+   ```
+
+Do not register from a static constructor. It runs before `app_main()`, and any logging there panics before ESPHome's logger exists.
 
 ### Universal Compatibility
 

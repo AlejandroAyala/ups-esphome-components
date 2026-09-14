@@ -86,48 +86,9 @@ private:
     static void ensure_initialized();
 };
 
-/**
- * Protocol Registration Helper Macros
- * 
- * These macros enable automatic protocol registration at startup
- */
-
-// Forward declare for registration macros
-class ProtocolFactory;
-
-// Register protocol for specific vendor
-#define REGISTER_UPS_PROTOCOL_FOR_VENDOR(vendor_id, protocol_name, creator_func, name_str, desc_str, prio) \
-    namespace { \
-        struct protocol_name##_registrar { \
-            protocol_name##_registrar() { \
-                esphome::ups_hid::ProtocolFactory::ProtocolInfo info; \
-                info.creator = creator_func; \
-                info.name = name_str; \
-                info.description = desc_str; \
-                info.supported_vendors = {vendor_id}; \
-                info.priority = prio; \
-                esphome::ups_hid::ProtocolFactory::register_protocol_for_vendor(vendor_id, info); \
-            } \
-        }; \
-        static protocol_name##_registrar protocol_name##_reg; \
-    }
-
-// Register fallback protocol
-#define REGISTER_UPS_FALLBACK_PROTOCOL(protocol_name, creator_func, name_str, desc_str, prio) \
-    namespace { \
-        struct protocol_name##_fallback_registrar { \
-            protocol_name##_fallback_registrar() { \
-                esphome::ups_hid::ProtocolFactory::ProtocolInfo info; \
-                info.creator = creator_func; \
-                info.name = name_str; \
-                info.description = desc_str; \
-                info.supported_vendors = {}; \
-                info.priority = prio; \
-                esphome::ups_hid::ProtocolFactory::register_fallback_protocol(info); \
-            } \
-        }; \
-        static protocol_name##_fallback_registrar protocol_name##_fallback_reg; \
-    }
+// Protocols are registered explicitly from BUILTIN_PROTOCOLS in ups_hid.cpp.
+// Do not register from static constructors: they run before app_main(), and
+// ProtocolFactory logs, which panics before ESPHome's logger exists.
 
 } // namespace ups_hid
 } // namespace esphome

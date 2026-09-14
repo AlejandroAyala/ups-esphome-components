@@ -102,8 +102,7 @@ class MegatecProtocol : public UpsProtocolBase {
   int start_delay_seconds_{-1};
 };
 
-// Factory creator. Declared here so ups_hid.cpp can take its address and keep
-// this translation unit linked in - see link_builtin_protocols().
+// Factory creator, registered from BUILTIN_PROTOCOLS in ups_hid.cpp
 std::unique_ptr<UpsProtocolBase> create_megatec_protocol(UpsHidComponent *parent);
 
 }  // namespace ups_hid

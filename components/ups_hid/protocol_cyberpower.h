@@ -123,8 +123,7 @@ class CyberPowerProtocol : public UpsProtocolBase {
   float parse_frequency_from_report(const HidReport &report);
 };
 
-// Factory creator. Declared here so ups_hid.cpp can take its address and keep
-// this translation unit linked in - see link_builtin_protocols().
+// Factory creator, registered from BUILTIN_PROTOCOLS in ups_hid.cpp
 std::unique_ptr<UpsProtocolBase> create_cyberpower_protocol(UpsHidComponent *parent);
 
 }  // namespace ups_hid
