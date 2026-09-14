@@ -266,6 +266,16 @@ namespace esphome
       virtual bool start_ups_test() { return false; }
       virtual bool stop_ups_test() { return false; }
       
+      virtual bool start_battery_test_timed(int minutes) { return false; }
+
+      // Output control. shutdown_return, shutdown_stayoff and load_off cut
+      // power to the protected load.
+      virtual bool shutdown_return() { return false; }
+      virtual bool shutdown_stayoff() { return false; }
+      virtual bool shutdown_cancel() { return false; }
+      virtual bool load_off() { return false; }
+      virtual bool load_on() { return false; }
+
       // Timer polling method for real-time countdown
       virtual bool read_timer_data(UpsData &data) { return false; }
       

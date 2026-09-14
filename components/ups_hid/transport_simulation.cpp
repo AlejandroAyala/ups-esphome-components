@@ -241,10 +241,11 @@ void SimulatedTransport::queue_megatec_reply(const std::string& command) {
         const float battery_voltage = 20.8f + (battery_level_ / 100.0f) * (26.0f - 20.8f);
 
         snprintf(buffer, sizeof(buffer),
-                 "(%05.1f %05.1f %05.1f %03d %04.1f %04.1f %04.1f %d%d000%d01\r",
+                 "(%05.1f %05.1f %05.1f %03d %04.1f %04.1f %04.1f %d%d000%d%d1\r",
                  input_voltage_, 0.0f, output_voltage_,
                  static_cast<int>(load_percent_), 50.0f, battery_voltage, 24.5f,
-                 on_battery ? 1 : 0, battery_low ? 1 : 0, test_running_ ? 1 : 0);
+                 on_battery ? 1 : 0, battery_low ? 1 : 0, test_running_ ? 1 : 0,
+                 shutdown_active_ ? 1 : 0);
         pending_interrupt_reply_ = buffer;
     } else if (command == "F") {
         // Rating: input voltage, input current, battery voltage, frequency
@@ -255,13 +256,21 @@ void SimulatedTransport::queue_megatec_reply(const std::string& command) {
     } else if (command == "Q") {
         beeper_status_ = (beeper_status_ == "enabled") ? "disabled" : "enabled";
         pending_interrupt_reply_.clear();
-    } else if (command == "T" || command == "TL") {
-        test_running_ = true;
-        test_result_ = "Test in progress";
-        pending_interrupt_reply_.clear();
     } else if (command == "CT") {
         test_running_ = false;
         test_result_ = "No test initiated";
+        pending_interrupt_reply_.clear();
+    } else if (!command.empty() && command[0] == 'T') {
+        // T, TL and T<nn>
+        test_running_ = true;
+        test_result_ = "Test in progress";
+        pending_interrupt_reply_.clear();
+    } else if (command == "C") {
+        shutdown_active_ = false;
+        pending_interrupt_reply_.clear();
+    } else if (!command.empty() && command[0] == 'S') {
+        // S<n> and S<n>R<m>; the simulated output never actually drops
+        shutdown_active_ = true;
         pending_interrupt_reply_.clear();
     } else {
         // Unsupported commands are silently ignored by real hardware

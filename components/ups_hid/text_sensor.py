@@ -29,6 +29,7 @@ TEXT_SENSOR_TYPES = [
     "ups_mfr_date",
     "ups_firmware_aux",
     "ups_test_result",
+    "ups_type",
 ]
 
 

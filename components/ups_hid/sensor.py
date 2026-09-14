@@ -9,12 +9,19 @@ from esphome.const import (
     DEVICE_CLASS_DURATION,
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_EMPTY,
+    DEVICE_CLASS_TEMPERATURE,
+    DEVICE_CLASS_CURRENT,
+    DEVICE_CLASS_FREQUENCY,
+    DEVICE_CLASS_APPARENT_POWER,
     UNIT_PERCENT,
     UNIT_VOLT,
     UNIT_MINUTE,
     UNIT_HERTZ,
     UNIT_WATT,
     UNIT_SECOND,
+    UNIT_CELSIUS,
+    UNIT_AMPERE,
+    UNIT_VOLT_AMPS,
 )
 
 
@@ -128,6 +135,36 @@ SENSOR_TYPES = {
     "ups_timer_start": {
         "unit": UNIT_SECOND,
         "device_class": DEVICE_CLASS_DURATION,
+        "accuracy_decimals": 0,
+    },
+    "ups_temperature": {
+        "unit": UNIT_CELSIUS,
+        "device_class": DEVICE_CLASS_TEMPERATURE,
+        "accuracy_decimals": 1,
+    },
+    "input_voltage_fault": {
+        "unit": UNIT_VOLT,
+        "device_class": DEVICE_CLASS_VOLTAGE,
+        "accuracy_decimals": 1,
+    },
+    "input_current_nominal": {
+        "unit": UNIT_AMPERE,
+        "device_class": DEVICE_CLASS_CURRENT,
+        "accuracy_decimals": 1,
+    },
+    "input_frequency_nominal": {
+        "unit": UNIT_HERTZ,
+        "device_class": DEVICE_CLASS_FREQUENCY,
+        "accuracy_decimals": 0,
+    },
+    "ups_power_nominal": {
+        "unit": UNIT_VOLT_AMPS,
+        "device_class": DEVICE_CLASS_APPARENT_POWER,
+        "accuracy_decimals": 0,
+    },
+    "ups_load_apparent_power": {
+        "unit": UNIT_VOLT_AMPS,
+        "device_class": DEVICE_CLASS_APPARENT_POWER,
         "accuracy_decimals": 0,
     },
 }

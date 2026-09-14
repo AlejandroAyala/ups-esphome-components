@@ -14,6 +14,9 @@ struct PowerData {
   float input_transfer_low{NAN};       // Low transfer voltage threshold (V)
   float input_transfer_high{NAN};      // High transfer voltage threshold (V)
   float frequency{NAN};                // Input frequency (Hz)
+  float frequency_nominal{NAN};        // Nominal input frequency (Hz)
+  float input_current_nominal{NAN};    // Nominal input current (A)
+  float input_voltage_fault{NAN};      // Input voltage recorded at the last line fault (V)
   
   // Output power metrics
   float output_voltage{NAN};           // Current output voltage (V)
@@ -33,6 +36,11 @@ struct PowerData {
   bool status_flags_valid{false};
   bool flag_on_battery{false};
   bool flag_fault{false};
+  bool flag_shutdown_active{false};
+  // Megatec reports one flag for all three; the protocol resolves which applies
+  bool flag_bypass{false};
+  bool flag_boost{false};
+  bool flag_trim{false};               // Buck: lowering a high input voltage
   
   // Power quality indicators
   bool input_voltage_valid() const {
@@ -71,6 +79,14 @@ struct PowerData {
     return (status_flags_valid && flag_fault) || is_input_out_of_range();
   }
   
+  // Load against the apparent power rating, when the UPS supplies one
+  float load_apparent_power() const {
+    if (std::isnan(load_percent) || std::isnan(apparent_power_nominal)) {
+      return NAN;
+    }
+    return apparent_power_nominal * load_percent / 100.0f;
+  }
+
   bool has_load_info() const {
     return !std::isnan(load_percent);
   }

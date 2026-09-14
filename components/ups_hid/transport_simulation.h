@@ -64,6 +64,7 @@ private:
     std::string beeper_status_{"enabled"};
     std::string test_result_{"No test initiated"};
     bool test_running_{false};
+    bool shutdown_active_{false};
     
     // Pending reply for the interrupt endpoint pair, used by the Megatec/Q*
     // simulation (armac framing: length byte followed by ASCII payload)

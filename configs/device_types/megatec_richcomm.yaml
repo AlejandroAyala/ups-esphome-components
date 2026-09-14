@@ -11,6 +11,8 @@
 #   - Battery percentage is DERIVED from battery voltage against per-12V-block
 #     bounds (10.4V empty / 13.0V full), the same way NUT does it. Treat it as
 #     an approximation, not a device reading.
+#   - Rated power is ESTIMATED as rated voltage x rated current from the F
+#     query; the protocol has no VA figure of its own.
 #   - The beeper only supports a toggle. Enable/disable resolve against the
 #     state reported by Q1, so poll at least once before using them.
 #   - Manufacturer/model are usually blank in the Q1 'I' reply; they fall back
@@ -48,6 +50,45 @@ logger:
     ups_hid.esp32_usb: DEBUG
 
 sensor:
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Temperature"
+    id: ups_temperature
+    type: ups_temperature
+    state_class: measurement
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "Input Fault Voltage"
+    id: input_fault_voltage
+    type: input_voltage_fault
+    state_class: measurement
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Rated Current"
+    id: ups_rated_current
+    type: input_current_nominal
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "Input Frequency Nominal"
+    id: input_frequency_nominal
+    type: input_frequency_nominal
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Rated Power"
+    id: ups_rated_power
+    type: ups_power_nominal
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Load Apparent Power"
+    id: ups_load_apparent_power
+    type: ups_load_apparent_power
+    state_class: measurement
+
   # Rough runtime estimate. Megatec provides no runtime value at all, so this is
   # derived from the load percentage and a hand-configured full-load runtime.
   - platform: template
@@ -68,6 +109,134 @@ sensor:
       return (full_load_minutes * (100.0f / load)) * (id(battery_level).state / 100.0f);
     update_interval: 60s
 
+binary_sensor:
+  # All read straight from the Q1 status bits
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Online"
+    type: online
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS On Battery"
+    type: on_battery
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Low Battery"
+    type: low_battery
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Fault"
+    type: fault
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Boosting Voltage"
+    type: boost
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Bucking Voltage"
+    type: buck
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Bypass Active"
+    type: bypass_active
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Shutdown Pending"
+    type: shutdown_active
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Battery Test Running"
+    type: test_in_progress
+
+text_sensor:
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Type"
+    type: ups_type
+
+number:
+  # Megatec takes these as shutdown command arguments rather than storing them.
+  # Defaults until changed: 30s shutdown, 180s start.
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Shutdown Delay"
+    delay_type: shutdown
+    min_value: 12
+    max_value: 600
+    step: 6
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Start Delay"
+    delay_type: start
+    min_value: 0
+    max_value: 7200
+    step: 60
+
+button:
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Beeper Toggle"
+    beeper_action: mute
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Quick Battery Test"
+    test_action: battery_quick
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS 5 Minute Battery Test"
+    test_action: battery_timed
+    test_duration: 5min
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Deep Battery Test"
+    test_action: battery_deep
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Stop Battery Test"
+    test_action: battery_stop
+
+  - platform: ups_hid
+    ups_hid_id: ups_monitor
+    name: "UPS Cancel Shutdown"
+    shutdown_action: shutdown_cancel
+
+  # These cut power to everything plugged into the UPS. Uncomment deliberately.
+  # Each only runs when pressed twice within 5 seconds, unless
+  # require_confirmation: false is set.
+  #
+  # - platform: ups_hid
+  #   ups_hid_id: ups_monitor
+  #   name: "UPS Shutdown and Restore"
+  #   shutdown_action: shutdown_return   # off after shutdown delay, on after start delay
+  #
+  # - platform: ups_hid
+  #   ups_hid_id: ups_monitor
+  #   name: "UPS Shutdown and Stay Off"
+  #   shutdown_action: shutdown_stayoff
+  #
+  # - platform: ups_hid
+  #   ups_hid_id: ups_monitor
+  #   name: "UPS Output Off"
+  #   shutdown_action: load_off
+  #
+  # - platform: ups_hid
+  #   ups_hid_id: ups_monitor
+  #   name: "UPS Output On"
+  #   shutdown_action: load_on
+
 script:
   - id: megatec_detailed_status
     then:
@@ -80,7 +249,7 @@ script:
             - "id(load_percentage).state"
             - "id(input_voltage).state"
             - "id(output_voltage).state"
-            - "id(frequency).state"
+            - "id(input_frequency).state"
           level: INFO
 
 interval:

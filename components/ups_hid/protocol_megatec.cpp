@@ -277,12 +277,22 @@ bool MegatecProtocol::parse_status(const std::string &response, UpsData &data) {
   data.power.frequency = strtof(fields[4].c_str(), nullptr);
   data.battery.voltage = strtof(fields[5].c_str(), nullptr);
 
-  // fields[1] is the fault voltage recorded at the last transfer and fields[6]
-  // is the internal temperature; neither maps onto the component data model
+  data.power.input_voltage_fault = strtof(fields[1].c_str(), nullptr);
+  data.device.temperature = strtof(fields[6].c_str(), nullptr);
 
   if (!std::isnan(input_voltage_nominal_)) {
     data.power.input_voltage_nominal = input_voltage_nominal_;
     data.power.output_voltage_nominal = input_voltage_nominal_;
+  }
+  if (!std::isnan(input_current_nominal_)) {
+    data.power.input_current_nominal = input_current_nominal_;
+  }
+  if (!std::isnan(frequency_nominal_)) {
+    data.power.frequency_nominal = frequency_nominal_;
+  }
+  if (!std::isnan(input_voltage_nominal_) && !std::isnan(input_current_nominal_)) {
+    // F carries no VA rating; rated voltage x rated current approximates it
+    data.power.apparent_power_nominal = input_voltage_nominal_ * input_current_nominal_;
   }
   if (!std::isnan(battery_voltage_nominal_)) {
     data.battery.voltage_nominal = battery_voltage_nominal_;
@@ -308,19 +318,30 @@ void MegatecProtocol::apply_status_flags(const std::string &flags, UpsData &data
   const bool test_in_progress = flags[5] == '1';
   const bool shutdown_active = flags[6] == '1';
   const bool beeper_on = flags[7] == '1';
-  // flags[4] is the UPS topology (1 = standby/line-interactive, 0 = online)
+  const bool line_interactive = flags[4] == '1';
 
   // The UPS reports these directly, so they are authoritative - the charge
   // level here is only an estimate and must not be what decides "low battery"
   data.power.status_flags_valid = true;
   data.power.flag_on_battery = utility_fail;
   data.power.flag_fault = ups_failed;
+  data.power.flag_shutdown_active = shutdown_active;
   data.battery.status_flags_valid = true;
   data.battery.flag_low_battery = battery_low;
 
+  data.device.ups_type =
+      line_interactive ? megatec::UPS_TYPE_LINE_INTERACTIVE : megatec::UPS_TYPE_ONLINE;
+
   data.power.status = utility_fail ? status::ON_BATTERY : status::ONLINE;
   if (bypass_active) {
-    data.power.status += " - Bypass";
+    classify_line_regulation(data.power);
+    if (data.power.flag_boost) {
+      data.power.status += " - Boost";
+    } else if (data.power.flag_trim) {
+      data.power.status += " - Buck";
+    } else if (data.power.flag_bypass) {
+      data.power.status += " - Bypass";
+    }
   }
   if (ups_failed) {
     data.power.status += " - Fault";
@@ -351,8 +372,29 @@ void MegatecProtocol::apply_status_flags(const std::string &flags, UpsData &data
     ESP_LOGW(MEGATEC_TAG, "UPS reports a shutdown sequence in progress");
   }
 
-  data.config.delay_shutdown = static_cast<int16_t>(shutdown_delay_seconds_);
-  data.config.delay_start = static_cast<int16_t>(start_delay_seconds_);
+  // The delays that the next shutdown command will actually use
+  data.config.delay_shutdown = static_cast<int16_t>(shutdown_delay_or_default());
+  data.config.delay_start = static_cast<int16_t>(start_delay_or_default());
+}
+
+void MegatecProtocol::classify_line_regulation(PowerData &power) {
+  if (std::isnan(power.input_voltage) || std::isnan(power.output_voltage) ||
+      power.input_voltage <= 0.0f) {
+    return;
+  }
+
+  // NUT blazer_process_status_bits(): the flag alone does not say which mode
+  const float ratio = power.output_voltage / power.input_voltage;
+  if (ratio < megatec::LINE_RATIO_MIN || ratio >= megatec::LINE_RATIO_MAX) {
+    return;
+  }
+  if (ratio < megatec::LINE_RATIO_TRIM_BELOW) {
+    power.flag_trim = true;
+  } else if (ratio < megatec::LINE_RATIO_BOOST_FROM) {
+    power.flag_bypass = true;
+  } else {
+    power.flag_boost = true;
+  }
 }
 
 float MegatecProtocol::infer_nominal_battery_voltage(float measured_voltage) {
@@ -529,6 +571,79 @@ bool MegatecProtocol::start_battery_test_deep() {
 bool MegatecProtocol::stop_battery_test() {
   ESP_LOGI(MEGATEC_TAG, "Stopping battery test");
   return transact_no_reply(megatec::CMD_TEST_STOP);
+}
+
+bool MegatecProtocol::start_battery_test_timed(int minutes) {
+  if (minutes < megatec::TEST_MINUTES_MIN || minutes > megatec::TEST_MINUTES_MAX) {
+    ESP_LOGW(MEGATEC_TAG, "Battery test length %d min is outside %d-%d", minutes,
+             megatec::TEST_MINUTES_MIN, megatec::TEST_MINUTES_MAX);
+    return false;
+  }
+  char command[megatec::COMMAND_BUFFER_SIZE];
+  snprintf(command, sizeof(command), "T%02d\r", minutes);
+  ESP_LOGI(MEGATEC_TAG, "Starting %d-minute battery test", minutes);
+  return transact_no_reply(command);
+}
+
+// ==================== Output control ====================
+
+std::string MegatecProtocol::format_shutdown_delay(int seconds) {
+  // Same encoding as NUT blazer_process_command(), clamped to the accepted range
+  const int clamped =
+      std::max(megatec::SHUTDOWN_DELAY_MIN_S, std::min(megatec::SHUTDOWN_DELAY_MAX_S, seconds));
+  char buffer[megatec::COMMAND_BUFFER_SIZE];
+  if (clamped < 60) {
+    snprintf(buffer, sizeof(buffer), ".%d", clamped / 6);
+  } else {
+    snprintf(buffer, sizeof(buffer), "%02d", clamped / 60);
+  }
+  return buffer;
+}
+
+int MegatecProtocol::shutdown_delay_or_default() const {
+  return shutdown_delay_seconds_ >= 0 ? shutdown_delay_seconds_ : megatec::DEFAULT_SHUTDOWN_DELAY_S;
+}
+
+int MegatecProtocol::start_delay_or_default() const {
+  return start_delay_seconds_ >= 0 ? start_delay_seconds_ : megatec::DEFAULT_START_DELAY_S;
+}
+
+bool MegatecProtocol::shutdown_return() {
+  // S<n> alone restores the output when mains returns; R<m> restores it after
+  // m minutes instead
+  std::string command = "S" + format_shutdown_delay(shutdown_delay_or_default());
+  const int restore_minutes = std::min(megatec::RESTORE_MINUTES_MAX, start_delay_or_default() / 60);
+  if (restore_minutes > 0) {
+    char restore[megatec::COMMAND_BUFFER_SIZE];
+    snprintf(restore, sizeof(restore), "R%04d", restore_minutes);
+    command += restore;
+  }
+  command += "\r";
+
+  ESP_LOGW(MEGATEC_TAG, "Shutting down UPS output (%s)", trim(command).c_str());
+  return transact_no_reply(command);
+}
+
+bool MegatecProtocol::shutdown_stayoff() {
+  const std::string command = "S" + format_shutdown_delay(shutdown_delay_or_default()) + "R0000\r";
+  ESP_LOGW(MEGATEC_TAG, "Shutting down UPS output until switched back on (%s)",
+           trim(command).c_str());
+  return transact_no_reply(command);
+}
+
+bool MegatecProtocol::shutdown_cancel() {
+  ESP_LOGI(MEGATEC_TAG, "Cancelling UPS shutdown");
+  return transact_no_reply(megatec::CMD_CANCEL_SHUTDOWN);
+}
+
+bool MegatecProtocol::load_off() {
+  ESP_LOGW(MEGATEC_TAG, "Switching UPS output off now");
+  return transact_no_reply(megatec::CMD_LOAD_OFF);
+}
+
+bool MegatecProtocol::load_on() {
+  ESP_LOGI(MEGATEC_TAG, "Switching UPS output on");
+  return transact_no_reply(megatec::CMD_CANCEL_SHUTDOWN);
 }
 
 // ==================== Delay configuration ====================

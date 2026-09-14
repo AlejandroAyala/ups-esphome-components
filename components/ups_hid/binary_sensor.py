@@ -7,6 +7,7 @@ from esphome.const import (
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_PROBLEM,
     DEVICE_CLASS_POWER,
+    DEVICE_CLASS_RUNNING,
 )
 
 from . import ups_hid_ns, UpsHidComponent, CONF_UPS_HID_ID
@@ -35,6 +36,16 @@ BINARY_SENSOR_TYPES = {
     },
     "charging": {
         "device_class": DEVICE_CLASS_BATTERY,
+    },
+    # Voltage regulation, from status flags (Megatec Q1)
+    "bypass_active": {},
+    "boost": {},
+    "buck": {},
+    "shutdown_active": {
+        "device_class": DEVICE_CLASS_PROBLEM,
+    },
+    "test_in_progress": {
+        "device_class": DEVICE_CLASS_RUNNING,
     },
 }
 

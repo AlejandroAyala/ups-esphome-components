@@ -84,7 +84,7 @@ UPS USB Port (Type-B)  ←→  USB Cable  ←→  ESP32-S3 USB OTG Port
 |----------|---------------|----------------|---------------|----------------|
 | **APC HID** | USB HID reports | ✅ | Battery, voltage, status | ✅ Beeper control |
 | **CyberPower HID** | Vendor-specific HID | ✅ | Extended sensors, config | ✅ Beeper control |
-| **Megatec Q1** | ASCII over interrupt endpoints | ✅ | Voltages, load, frequency, battery voltage, status flags | 🔁 Beeper toggle, battery test |
+| **Megatec Q1** | ASCII over interrupt endpoints | ✅ | Voltages, load, frequency, battery voltage, temperature, ratings, status flags | 🔁 Beeper toggle, battery tests, shutdown/output control |
 | **Generic HID** | Standard HID-PDC | ✅ | Basic monitoring | ⚠️ Limited writes |
 
 #### Megatec Q1 protocol notes
@@ -106,7 +106,28 @@ Consequences worth knowing before you wire up dashboards:
   the USB string descriptors.
 - **Delay settings are not device state.** On Megatec the shutdown/start delays
   are arguments to the shutdown command, so the number entities hold them
-  locally rather than writing them to the UPS.
+  locally rather than writing them to the UPS. Until set they default to 30s
+  and 180s. The shutdown delay is clamped to 12-600s and rounded down to what
+  the command can express (6s steps below a minute, whole minutes above).
+- **Rated power is estimated.** `F` reports rated voltage and current but no
+  VA figure, so `ups_power_nominal` is voltage x current and
+  `ups_load_apparent_power` is that times the load percentage.
+- **Boost, buck and bypass share one status bit.** Like NUT, the component
+  tells them apart by the output/input voltage ratio.
+
+Megatec-specific entity types:
+
+| Platform | Types |
+|----------|-------|
+| `sensor` | `ups_temperature`, `input_voltage_fault`, `input_current_nominal`, `input_frequency_nominal`, `ups_power_nominal`, `ups_load_apparent_power` |
+| `binary_sensor` | `boost`, `buck`, `bypass_active`, `shutdown_active`, `test_in_progress` (plus the common `online`, `on_battery`, `low_battery`, `fault`) |
+| `text_sensor` | `ups_type` |
+| `button` | `test_action: battery_timed` (with `test_duration`), `shutdown_action: shutdown_return / shutdown_stayoff / shutdown_cancel / load_off / load_on` |
+
+`shutdown_return`, `shutdown_stayoff` and `load_off` cut power to everything on
+the UPS. By default they only run when pressed twice within 5 seconds; set
+`require_confirmation: false` to trigger them from automations with a single
+press.
 
 ## Configuration Reference
 

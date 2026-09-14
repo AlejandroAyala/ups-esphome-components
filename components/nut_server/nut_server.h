@@ -171,6 +171,9 @@ private:
   // Server state
   mutable std::mutex server_mutex_;
   bool shutdown_requested_{false};
+  // Set by a client's FSD command; reported in ups.status so every connected
+  // upsmon shuts down. Cleared only by a restart, as with upsd.
+  bool fsd_set_{false};
 };
 
 }  // namespace nut_server

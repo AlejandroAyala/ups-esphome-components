@@ -449,6 +449,18 @@ void UpsHidComponent::update_sensors() {
       value = ups_data_.test.timer_shutdown;
     } else if (type == sensor_type::UPS_TIMER_START && ups_data_.test.timer_start != -1) {
       value = ups_data_.test.timer_start;
+    } else if (type == sensor_type::UPS_TEMPERATURE) {
+      value = ups_data_.device.temperature;
+    } else if (type == sensor_type::INPUT_VOLTAGE_FAULT) {
+      value = ups_data_.power.input_voltage_fault;
+    } else if (type == sensor_type::INPUT_CURRENT_NOMINAL) {
+      value = ups_data_.power.input_current_nominal;
+    } else if (type == sensor_type::INPUT_FREQUENCY_NOMINAL) {
+      value = ups_data_.power.frequency_nominal;
+    } else if (type == sensor_type::UPS_POWER_NOMINAL) {
+      value = ups_data_.power.apparent_power_nominal;
+    } else if (type == sensor_type::UPS_LOAD_APPARENT_POWER) {
+      value = ups_data_.power.load_apparent_power();
     }
     
     if (!std::isnan(value)) {
@@ -481,6 +493,16 @@ void UpsHidComponent::update_sensors() {
               (!ups_data_.power.is_valid() && !ups_data_.battery.is_valid());
     } else if (type == binary_sensor_type::OVERLOAD) {
       state = ups_data_.power.is_overloaded();
+    } else if (type == binary_sensor_type::BYPASS_ACTIVE) {
+      state = ups_data_.power.status_flags_valid && ups_data_.power.flag_bypass;
+    } else if (type == binary_sensor_type::BOOST) {
+      state = ups_data_.power.status_flags_valid && ups_data_.power.flag_boost;
+    } else if (type == binary_sensor_type::BUCK) {
+      state = ups_data_.power.status_flags_valid && ups_data_.power.flag_trim;
+    } else if (type == binary_sensor_type::SHUTDOWN_ACTIVE) {
+      state = ups_data_.power.status_flags_valid && ups_data_.power.flag_shutdown_active;
+    } else if (type == binary_sensor_type::TEST_IN_PROGRESS) {
+      state = ups_data_.test.is_test_running();
     }
 
     sensor->publish_state(state);
@@ -523,6 +545,8 @@ void UpsHidComponent::update_sensors() {
       value = ups_data_.battery.type;
     } else if (type == text_sensor_type::UPS_FIRMWARE_AUX && !ups_data_.device.firmware_aux.empty()) {
       value = ups_data_.device.firmware_aux;
+    } else if (type == text_sensor_type::UPS_TYPE && !ups_data_.device.ups_type.empty()) {
+      value = ups_data_.device.ups_type;
     }
     
     if (!value.empty()) {

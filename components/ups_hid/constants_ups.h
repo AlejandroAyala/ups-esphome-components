@@ -160,6 +160,8 @@ namespace test {
     static constexpr const char* ACTION_BATTERY_STOP = "battery_stop";
     static constexpr const char* ACTION_UPS_TEST = "ups_test";
     static constexpr const char* ACTION_UPS_STOP = "ups_stop";
+    static constexpr const char* ACTION_BATTERY_TIMED = "battery_timed";
+    static constexpr int DEFAULT_TIMED_TEST_MINUTES = 10;
     
     // Test command values
     static constexpr uint8_t COMMAND_QUICK = 1;
@@ -175,6 +177,19 @@ namespace test {
     static constexpr const char* RESULT_NO_TEST = "No test initiated";
     static constexpr const char* RESULT_SCHEDULED = "Test scheduled";
     static constexpr const char* RESULT_ERROR_READING = "Error reading test result";
+}
+
+// ==================== Shutdown Actions ====================
+namespace shutdown {
+    // RETURN, STAYOFF and LOAD_OFF cut power to the protected load
+    static constexpr const char* ACTION_RETURN = "shutdown_return";
+    static constexpr const char* ACTION_STAYOFF = "shutdown_stayoff";
+    static constexpr const char* ACTION_CANCEL = "shutdown_cancel";
+    static constexpr const char* ACTION_LOAD_OFF = "load_off";
+    static constexpr const char* ACTION_LOAD_ON = "load_on";
+
+    // A destructive button press only runs when repeated within this window
+    static constexpr uint32_t CONFIRM_WINDOW_MS = 5000;
 }
 
 // ==================== Sensor Type Identifiers ====================
@@ -198,6 +213,12 @@ namespace sensor_type {
     static constexpr const char* UPS_TIMER_REBOOT = "ups_timer_reboot";
     static constexpr const char* UPS_TIMER_SHUTDOWN = "ups_timer_shutdown";
     static constexpr const char* UPS_TIMER_START = "ups_timer_start";
+    static constexpr const char* UPS_TEMPERATURE = "ups_temperature";
+    static constexpr const char* INPUT_VOLTAGE_FAULT = "input_voltage_fault";
+    static constexpr const char* INPUT_CURRENT_NOMINAL = "input_current_nominal";
+    static constexpr const char* INPUT_FREQUENCY_NOMINAL = "input_frequency_nominal";
+    static constexpr const char* UPS_POWER_NOMINAL = "ups_power_nominal";
+    static constexpr const char* UPS_LOAD_APPARENT_POWER = "ups_load_apparent_power";
 }
 
 // ==================== Binary Sensor Type Identifiers ====================
@@ -212,6 +233,8 @@ namespace binary_sensor_type {
     static constexpr const char* CHARGING = "charging";
     static constexpr const char* DISCHARGING = "discharging";
     static constexpr const char* BYPASS_ACTIVE = "bypass_active";
+    static constexpr const char* SHUTDOWN_ACTIVE = "shutdown_active";
+    static constexpr const char* TEST_IN_PROGRESS = "test_in_progress";
 }
 
 // ==================== Text Sensor Type Identifiers ====================
@@ -230,6 +253,7 @@ namespace text_sensor_type {
     static constexpr const char* UPS_MFR_DATE = "ups_mfr_date";
     static constexpr const char* BATTERY_TYPE = "battery_type";
     static constexpr const char* UPS_FIRMWARE_AUX = "ups_firmware_aux";
+    static constexpr const char* UPS_TYPE = "ups_type";
 }
 
 // ==================== Input Sensitivity Values ====================
@@ -249,7 +273,7 @@ namespace component {
     // log identifies the running build at a glance. This is the reliable way to
     // tell a current firmware from one the bootloader has rolled back - the
     // ESPHome "compiled on" header is easy to miss when reconnecting.
-    static constexpr const char* VERSION = "rev11";
+    static constexpr const char* VERSION = "rev12";
 }
 
 namespace protocol {
@@ -289,12 +313,39 @@ namespace megatec {
     static constexpr const char* CMD_TEST_QUICK = "T\r";
     static constexpr const char* CMD_TEST_DEEP = "TL\r";
     static constexpr const char* CMD_TEST_STOP = "CT\r";
+    // C cancels a pending shutdown and also turns a switched-off output back on
+    static constexpr const char* CMD_CANCEL_SHUTDOWN = "C\r";
+    static constexpr const char* CMD_LOAD_OFF = "S00R0000\r";
+    static constexpr size_t COMMAND_BUFFER_SIZE = 16;
+
+    // T<nn>: timed battery test length in minutes
+    static constexpr int TEST_MINUTES_MIN = 1;
+    static constexpr int TEST_MINUTES_MAX = 99;
+
+    // S<n>: .2-.9 tenths of a minute or 01-10 minutes; R<m>: 0001-9999 minutes
+    static constexpr int SHUTDOWN_DELAY_MIN_S = 12;
+    static constexpr int SHUTDOWN_DELAY_MAX_S = 600;
+    static constexpr int RESTORE_MINUTES_MAX = 9999;
+    // Used until a delay number entity sets one (NUT nutdrv_qx.h defaults)
+    static constexpr int DEFAULT_SHUTDOWN_DELAY_S = 30;
+    static constexpr int DEFAULT_START_DELAY_S = 180;
 
     // Q1 reply markers
     static constexpr char STATUS_REPLY_PREFIX = '(';
     static constexpr char INFO_REPLY_PREFIX = '#';
     static constexpr size_t STATUS_FIELD_COUNT = 8;
     static constexpr size_t STATUS_FLAG_COUNT = 8;
+
+    // Q1 bit 4, worded as NUT's ups.type
+    static constexpr const char* UPS_TYPE_ONLINE = "online";
+    static constexpr const char* UPS_TYPE_LINE_INTERACTIVE = "offline / line interactive";
+
+    // Q1 bit 2 covers bypass, boost and buck alike. NUT tells them apart by the
+    // output/input voltage ratio and ignores ratios outside 0.5-1.5.
+    static constexpr float LINE_RATIO_MIN = 0.5f;
+    static constexpr float LINE_RATIO_TRIM_BELOW = 0.95f;
+    static constexpr float LINE_RATIO_BOOST_FROM = 1.05f;
+    static constexpr float LINE_RATIO_MAX = 1.5f;
 
     // I reply is fixed width: mfr [1..15], model [17..26], firmware [28..37]
     static constexpr size_t INFO_MFR_OFFSET = 1;

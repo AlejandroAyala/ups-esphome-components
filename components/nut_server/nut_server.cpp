@@ -380,6 +380,14 @@ void NutServerComponent::process_command(NutClient &client, const std::string &c
       } else {
         send_error(client, "INVALID-ARGUMENT");
       }
+    } else if (cmd == "PRIMARY" || cmd == "MASTER") {
+      // upsmon in primary mode claims the UPS before monitoring it; MASTER is
+      // the pre-2.8 spelling
+      if (args != get_ups_name()) {
+        send_error(client, "UNKNOWN-UPS");
+      } else {
+        send_response(client, "OK " + cmd + "-GRANTED\n");
+      }
     } else if (cmd == "INSTCMD") {
       handle_instcmd(client, args);
     } else if (cmd == "FSD") {
@@ -472,7 +480,9 @@ void NutServerComponent::handle_list_var(NutClient &client, const std::string &a
     "input.voltage", "input.voltage.nominal", "input.frequency", 
     "input.transfer.low", "input.transfer.high",
     "output.voltage", "output.voltage.nominal", 
-    "ups.load", "ups.realpower.nominal", "ups.power.nominal"
+    "ups.load", "ups.realpower.nominal", "ups.power.nominal",
+    "ups.temperature", "ups.type",
+    "input.voltage.fault", "input.current.nominal", "input.frequency.nominal"
   };
   
   for (const auto &var : variables) {
@@ -648,9 +658,14 @@ void NutServerComponent::handle_password(NutClient &client, const std::string &a
 }
 
 void NutServerComponent::handle_fsd(NutClient &client, const std::string &args) {
-  // FSD (Forced Shutdown) - this is a critical command
-  // For now, just acknowledge but don't actually shutdown
-  ESP_LOGW(TAG, "FSD (Forced Shutdown) command received from client");
+  // A primary upsmon sets FSD to tell every other client to shut down; the UPS
+  // output itself is left alone
+  if (args != get_ups_name()) {
+    send_error(client, "UNKNOWN-UPS");
+    return;
+  }
+  ESP_LOGW(TAG, "FSD (forced shutdown) set by client %s", client.remote_ip.c_str());
+  fsd_set_ = true;
   send_response(client, "OK FSD-SET\n");
 }
 
@@ -823,6 +838,22 @@ std::string NutServerComponent::get_ups_var(const std::string &var_name) {
     if (var_name == "ups.power.nominal" && !std::isnan(ups_data.power.apparent_power_nominal)) {
       return std::to_string(static_cast<int>(ups_data.power.apparent_power_nominal));
     }
+
+    if (var_name == "ups.temperature" && !std::isnan(ups_data.device.temperature)) {
+      return format_nut_value(std::to_string(ups_data.device.temperature));
+    }
+    if (var_name == "ups.type" && !ups_data.device.ups_type.empty()) {
+      return ups_data.device.ups_type;
+    }
+    if (var_name == "input.voltage.fault" && !std::isnan(ups_data.power.input_voltage_fault)) {
+      return format_nut_value(std::to_string(ups_data.power.input_voltage_fault));
+    }
+    if (var_name == "input.current.nominal" && !std::isnan(ups_data.power.input_current_nominal)) {
+      return format_nut_value(std::to_string(ups_data.power.input_current_nominal));
+    }
+    if (var_name == "input.frequency.nominal" && !std::isnan(ups_data.power.frequency_nominal)) {
+      return format_nut_value(std::to_string(ups_data.power.frequency_nominal));
+    }
   }
   
   if (var_name == "ups.status") {
@@ -976,7 +1007,26 @@ std::string NutServerComponent::get_ups_status() const {
     if (!status.empty()) status += " ";
     status += "ALARM";  // Alarm condition
   }
-  
+
+  const auto append = [&status](const char *token) {
+    if (!status.empty()) status += " ";
+    status += token;
+  };
+
+  // Tokens NUT's Megatec driver derives from the Q1 status bits
+  const auto ups_data = ups_hid_->get_ups_data();
+  if (ups_data.power.status_flags_valid) {
+    if (ups_data.power.flag_boost) append("BOOST");
+    if (ups_data.power.flag_trim) append("TRIM");
+    if (ups_data.power.flag_bypass) append("BYPASS");
+  }
+  if (fsd_set_ || (ups_data.power.status_flags_valid && ups_data.power.flag_shutdown_active)) {
+    append("FSD");
+  }
+  if (ups_data.test.is_test_running()) {
+    append("CAL");
+  }
+
   return status;
 }
 

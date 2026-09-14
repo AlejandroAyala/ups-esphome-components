@@ -56,7 +56,15 @@ class MegatecProtocol : public UpsProtocolBase {
   // Battery test control
   bool start_battery_test_quick() override;
   bool start_battery_test_deep() override;
+  bool start_battery_test_timed(int minutes) override;
   bool stop_battery_test() override;
+
+  // Output control - shutdown_return, shutdown_stayoff and load_off cut power
+  bool shutdown_return() override;
+  bool shutdown_stayoff() override;
+  bool shutdown_cancel() override;
+  bool load_off() override;
+  bool load_on() override;
 
   // Delay configuration (held locally, applied to shutdown commands)
   bool set_shutdown_delay(int seconds) override;
@@ -76,6 +84,14 @@ class MegatecProtocol : public UpsProtocolBase {
   void apply_status_flags(const std::string &flags, UpsData &data);
   void estimate_battery_charge(UpsData &data);
   void populate_device_info(UpsData &data);
+
+  // Resolves Q1 status bit 2 into bypass, boost or buck
+  static void classify_line_regulation(PowerData &power);
+
+  // S<n> argument for a delay in seconds, clamped to what the UPS accepts
+  static std::string format_shutdown_delay(int seconds);
+  int shutdown_delay_or_default() const;
+  int start_delay_or_default() const;
 
   // Guesses the pack size from a measured voltage when the F query gave us no
   // nominal value. Returns NAN if no standard pack size fits.

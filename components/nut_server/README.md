@@ -211,6 +211,28 @@ The component is compatible with GUI monitoring tools like `nut-monitor`. Config
 - UPS Name: As configured in `ups_name`
 - Username/Password: If authentication is enabled
 
+### Shutting down a PC with `upsmon`
+Any machine on the LAN can run NUT's `upsmon` against the ESP32 and shut itself
+down when the battery runs low. Install NUT (Linux packages, or NUT for Windows /
+WinNUT) and add one line to `upsmon.conf`:
+
+```
+# MONITOR <ups_name>@<esp32-ip>:<port> <power value> <username> <password> <role>
+MONITOR hik-ups@192.168.1.100:3493 1 nutuser nutpass secondary
+```
+
+- **`secondary`** fits most setups: the PC watches `ups.status` and shuts down
+  on `OB LB` (on battery and low battery) or `FSD`.
+- **`primary`** is accepted too (`PRIMARY`/`MASTER` are answered). A primary
+  that sends `FSD` sets the `FSD` flag for every connected client, which is how
+  one machine tells the others to shut down. The flag stays set until the
+  ESP32 restarts. It never switches off the UPS output; that is done with the
+  `ups_hid` shutdown buttons.
+- `ups.status` also carries `BOOST`, `TRIM`, `BYPASS` and `CAL` on UPSes that
+  report them (Megatec).
+- Use a real `ups_name` - an unresolved `${name}` substitution ends up
+  literally in the UPS name clients must use.
+
 ### Home Assistant NUT Integration
 You can use Home Assistant's NUT integration to monitor the UPS:
 

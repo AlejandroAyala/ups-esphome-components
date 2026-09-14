@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <string>
 
 namespace esphome {
@@ -13,6 +14,8 @@ struct DeviceInfo {
   std::string firmware_version{};      // Primary firmware version
   std::string firmware_aux{};          // Auxiliary firmware info
   std::string mfr_date{};              // Device manufacture date
+  std::string ups_type{};              // UPS topology, e.g. "online"
+  float temperature{NAN};              // UPS internal temperature (°C)
   
   // USB device identification
   uint16_t usb_vendor_id{0};          // USB Vendor ID
