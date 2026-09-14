@@ -2,6 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import binary_sensor
 from esphome.const import (
+    CONF_DEVICE_CLASS,
     CONF_TYPE,
     DEVICE_CLASS_CONNECTIVITY,
     DEVICE_CLASS_BATTERY,
@@ -50,11 +51,26 @@ BINARY_SENSOR_TYPES = {
 }
 
 
-CONFIG_SCHEMA = binary_sensor.binary_sensor_schema(UpsHidBinarySensor).extend(
-    {
-        cv.GenerateID(CONF_UPS_HID_ID): cv.use_id(UpsHidComponent),
-        cv.Required(CONF_TYPE): cv.one_of(*BINARY_SENSOR_TYPES, lower=True),
-    }
+def apply_type_defaults(config):
+    """Fill the device class from the sensor type.
+
+    Done during validation so binary_sensor.new_binary_sensor() applies it;
+    current ESPHome has no runtime setter for it.
+    """
+    defaults = BINARY_SENSOR_TYPES[config[CONF_TYPE]]
+    if CONF_DEVICE_CLASS not in config and "device_class" in defaults:
+        config[CONF_DEVICE_CLASS] = defaults["device_class"]
+    return config
+
+
+CONFIG_SCHEMA = cv.All(
+    binary_sensor.binary_sensor_schema(UpsHidBinarySensor).extend(
+        {
+            cv.GenerateID(CONF_UPS_HID_ID): cv.use_id(UpsHidComponent),
+            cv.Required(CONF_TYPE): cv.one_of(*BINARY_SENSOR_TYPES, lower=True),
+        }
+    ),
+    apply_type_defaults,
 )
 
 
@@ -66,11 +82,3 @@ async def to_code(config):
     sensor_type = config[CONF_TYPE]
     cg.add(var.set_sensor_type(sensor_type))
     cg.add(parent.register_binary_sensor(var, sensor_type))
-
-    # Apply sensor type specific configuration
-    if sensor_type in BINARY_SENSOR_TYPES:
-        sensor_config = BINARY_SENSOR_TYPES[sensor_type]
-
-        # Override config with sensor type defaults if not specified
-        if "device_class" not in config and "device_class" in sensor_config:
-            cg.add(var.set_device_class(sensor_config["device_class"]))
