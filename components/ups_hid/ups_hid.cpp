@@ -118,6 +118,16 @@ void UpsHidComponent::setup() {
 
 void UpsHidComponent::update() {
   if (!transport_) {
+    // safe_mode marks a boot good only after it has run for a while, and a reset
+    // before then rolls the firmware back. Deferring to the first update() alone
+    // still lands inside that window, so a USB fault silently reverted to the
+    // previous build. Waiting it out makes a fault crash into this firmware,
+    // with its logs reaching the network.
+    if (!simulation_mode_ && millis() < timing::USB_BRINGUP_MIN_UPTIME_MS) {
+      ESP_LOGD(TAG, "Deferring USB bring-up until boot is marked good (%us left)",
+               static_cast<unsigned>((timing::USB_BRINGUP_MIN_UPTIME_MS - millis()) / 1000));
+      return;
+    }
     ESP_LOGI(TAG, "Bringing up USB transport (component %s)", component::VERSION);
     if (!initialize_transport()) {
       if (should_log_error(usb_error_limiter_)) {
@@ -201,8 +211,11 @@ void UpsHidComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "  Status: %s", status::DISCONNECTED);
     // Distinguishes "setup aborted before the transport existed" from
     // "transport was created but could not open the device"
-    if (!transport_) {
+    if (!transport_ && is_failed()) {
       ESP_LOGCONFIG(TAG, "  Transport: not created - setup aborted early");
+    } else if (!transport_) {
+      ESP_LOGCONFIG(TAG, "  Transport: not created yet - USB bring-up waits %us after boot",
+                    static_cast<unsigned>(timing::USB_BRINGUP_MIN_UPTIME_MS / 1000));
     } else {
       const std::string last_error = transport_->get_last_error();
       ESP_LOGCONFIG(TAG, "  Transport Error: %s",

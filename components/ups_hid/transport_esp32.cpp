@@ -24,36 +24,45 @@ Esp32UsbTransport::~Esp32UsbTransport() {
 }
 
 esp_err_t Esp32UsbTransport::initialize() {
-    std::lock_guard<std::mutex> lock(device_mutex_);
-    
-    if (initialized_.load()) {
-        return ESP_OK;
-    }
-    
-    // These steps are logged individually on purpose: on the ESP32-S3 the USB
-    // host driver takes over the internal USB PHY, so if bring-up faults the
-    // last line logged is what localises it.
-    ESP_LOGI(ESP32_USB_TAG, "USB init step 1/2: installing USB host driver");
+    {
+        std::lock_guard<std::mutex> lock(device_mutex_);
 
-    esp_err_t ret = setup_usb_host();
-    if (ret != ESP_OK) {
-        set_last_error("Failed to setup USB host: " + std::string(esp_err_to_name(ret)));
-        return ret;
+        if (initialized_.load()) {
+            return ESP_OK;
+        }
+
+        // These steps are logged individually on purpose: on the ESP32-S3 the USB
+        // host driver takes over the internal USB PHY, so if bring-up faults the
+        // last line logged is what localises it.
+        ESP_LOGI(ESP32_USB_TAG, "USB init step 1/3: installing USB host driver");
+
+        esp_err_t ret = setup_usb_host();
+        if (ret != ESP_OK) {
+            set_last_error("Failed to setup USB host: " + std::string(esp_err_to_name(ret)));
+            return ret;
+        }
+
+        ESP_LOGI(ESP32_USB_TAG, "USB init step 2/3: registering client");
+
+        // Register USB client for device events - connection will be asynchronous
+        ret = register_client();
+        if (ret != ESP_OK) {
+            teardown_usb_host();
+            return ret;
+        }
+
+        initialized_ = true;
     }
 
-    ESP_LOGI(ESP32_USB_TAG, "USB init step 2/2: registering client and scanning for devices");
+    // Must run with device_mutex_ released: handle_new_device() takes it, and
+    // std::mutex is not recursive. Holding it here deadlocked the main loop
+    // whenever the UPS had already enumerated, until the task watchdog reset
+    // the chip - inside the safe_mode window, so the firmware was rolled back.
+    ESP_LOGI(ESP32_USB_TAG, "USB init step 3/3: opening already-enumerated devices");
+    open_existing_devices();
 
-    // Register USB client for device events - connection will be asynchronous
-    ret = find_and_open_device();
-    if (ret != ESP_OK) {
-        teardown_usb_host();
-        return ret;
-    }
-    
-    initialized_ = true;
-    
     ESP_LOGI(ESP32_USB_TAG, "ESP32 USB transport initialized - waiting for USB device connection events");
-    
+
     return ESP_OK;
 }
 
@@ -682,7 +691,7 @@ esp_err_t Esp32UsbTransport::teardown_usb_host() {
     return ESP_OK;
 }
 
-esp_err_t Esp32UsbTransport::find_and_open_device() {
+esp_err_t Esp32UsbTransport::register_client() {
     // Register USB client in asynchronous mode for event-driven device detection
     usb_host_client_config_t client_config = {
         .is_synchronous = false,  // Use asynchronous mode for USB_HOST_CLIENT_EVENT_NEW_DEV events
@@ -699,10 +708,15 @@ esp_err_t Esp32UsbTransport::find_and_open_device() {
         return ret;
     }
     
-    ESP_LOGI(ESP32_USB_TAG, "USB client registered (handle=0x%p), waiting for device connection events...", 
+    ESP_LOGI(ESP32_USB_TAG, "USB client registered (handle=0x%p), waiting for device connection events...",
              device_.client_hdl);
-    
-    // Force immediate device enumeration check in addition to event-driven detection
+
+    return ESP_OK;
+}
+
+void Esp32UsbTransport::open_existing_devices() {
+    // Catches a device that enumerated before the client registered, in addition
+    // to event-driven detection
     ESP_LOGI(ESP32_USB_TAG, "Performing immediate device enumeration check...");
     vTaskDelay(pdMS_TO_TICKS(100)); // Small delay for USB stack to stabilize
     
@@ -718,8 +732,6 @@ esp_err_t Esp32UsbTransport::find_and_open_device() {
     } else {
         ESP_LOGI(ESP32_USB_TAG, "No existing USB devices found - waiting for connection events");
     }
-    
-    return ESP_OK;
 }
 
 esp_err_t Esp32UsbTransport::claim_interface() {

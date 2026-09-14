@@ -97,7 +97,9 @@ private:
     
     esp_err_t setup_usb_host();
     esp_err_t teardown_usb_host();
-    esp_err_t find_and_open_device();
+    esp_err_t register_client();
+    // Takes device_mutex_ (via handle_new_device), so call it without holding it
+    void open_existing_devices();
     esp_err_t claim_interface();
     esp_err_t find_endpoints();
     
