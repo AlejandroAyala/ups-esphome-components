@@ -15,11 +15,12 @@ namespace ups_hid {
  *
  * Unlike the APC and CyberPower protocols, this is not a HID Power Device at
  * all: the UPS exposes a HID-class interface that merely tunnels the classic
- * Megatec ASCII command set. Commands go out on the interrupt OUT endpoint and
- * replies come back on the interrupt IN endpoint, both wrapped in a one-byte
- * length header.
+ * Megatec ASCII command set. Commands go out on the interrupt OUT endpoint as
+ * a length byte plus the command, with no terminating NUL; replies come back on
+ * the interrupt IN endpoint behind a control byte holding the byte count.
  *
- * Verified against a Lakeview/Richcomm bridge (0925:1234, "UPS USB Mon V2.0"):
+ * Reply parsing (not command framing) verified against a Lakeview/Richcomm
+ * bridge (0925:1234, "UPS USB Mon V2.0"):
  *   Q1 -> "(231.0 000.0 232.0 014 50.0 27.0 20.8 00001001"
  *   F  -> "#220.0 005 24.00 50.0"
  *   I  -> "#                           V3.65     "

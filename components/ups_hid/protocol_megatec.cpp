@@ -16,20 +16,40 @@ static const char *const MEGATEC_TAG = "ups_hid.megatec";
 
 // ==================== armac transport framing ====================
 
+namespace {
+
+// Space-separated hex, for wire-level debug logs
+std::string hex_dump(const uint8_t *data, size_t len) {
+  static const char *const DIGITS = "0123456789abcdef";
+  std::string out;
+  out.reserve(len * 3);
+  for (size_t i = 0; i < len; i++) {
+    if (i > 0) {
+      out += ' ';
+    }
+    out += DIGITS[data[i] >> 4];
+    out += DIGITS[data[i] & 0x0f];
+  }
+  return out;
+}
+
+}  // namespace
+
 bool MegatecProtocol::send_command_raw(const std::string &command) {
-  // Payload is the command including its terminating NUL, prefixed by a byte
-  // carrying the payload length. NUT: armac_command() interrupt path.
-  const size_t payload_len = command.size() + 1;
-  if (payload_len + 1 > megatec::PACKET_SIZE) {
-    ESP_LOGE(MEGATEC_TAG, "Command too long for a single packet: %zu bytes", payload_len);
+  // A length byte (0xa0 + len) followed by the command bytes, with no NUL.
+  // Matches NUT armac_command_internal() on its interrupt path: qx_process()
+  // passes cmdlen = strlen(cmd), so "Q1\r" goes out as a3 51 31 0d.
+  const size_t payload_len = command.size();
+  if (payload_len == 0 || payload_len + 1 > megatec::PACKET_SIZE) {
+    ESP_LOGE(MEGATEC_TAG, "Command length %zu does not fit one packet", payload_len);
     return false;
   }
 
   uint8_t packet[megatec::PACKET_SIZE] = {0};
-  packet[0] = static_cast<uint8_t>(megatec::PACKET_LENGTH_PREFIX | payload_len);
-  memcpy(packet + 1, command.data(), command.size());
-  // packet[1 + command.size()] stays 0 - the terminating NUL
+  packet[0] = static_cast<uint8_t>(megatec::PACKET_LENGTH_PREFIX + payload_len);
+  memcpy(packet + 1, command.data(), payload_len);
 
+  ESP_LOGD(MEGATEC_TAG, "TX %s", hex_dump(packet, payload_len + 1).c_str());
   esp_err_t ret = parent_->interrupt_write(packet, payload_len + 1, megatec::WRITE_TIMEOUT_MS);
   if (ret != ESP_OK) {
     ESP_LOGW(MEGATEC_TAG, "Failed to send command: %s", esp_err_to_name(ret));
@@ -52,12 +72,17 @@ bool MegatecProtocol::read_response(std::string &response) {
 
     esp_err_t ret = parent_->interrupt_read(buffer, &buffer_len, timeout_ms);
     if (ret != ESP_OK || buffer_len == 0) {
+      ESP_LOGD(MEGATEC_TAG, "RX chunk %zu: nothing within %ums (%s)", chunk,
+               static_cast<unsigned>(timeout_ms), esp_err_to_name(ret));
       // A timeout after we already have data means the reply simply ended
       // without a carriage return, which some units do
       return !response.empty();
     }
 
     size_t available = buffer[0] & megatec::PACKET_LENGTH_MASK;
+    // Only the bytes the control byte claims, not a fixed-size report's padding
+    ESP_LOGD(MEGATEC_TAG, "RX chunk %zu: %zu bytes, %s", chunk, buffer_len,
+             hex_dump(buffer, std::min(buffer_len, available + 1)).c_str());
     if (available == 0) {
       // Control byte reports an empty buffer - end of transfer
       break;

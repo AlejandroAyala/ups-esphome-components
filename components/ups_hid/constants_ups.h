@@ -249,7 +249,7 @@ namespace component {
     // log identifies the running build at a glance. This is the reliable way to
     // tell a current firmware from one the bootloader has rolled back - the
     // ESPHome "compiled on" header is easy to miss when reconnecting.
-    static constexpr const char* VERSION = "rev10";
+    static constexpr const char* VERSION = "rev11";
 }
 
 namespace protocol {
@@ -263,22 +263,23 @@ namespace protocol {
 // ==================== Megatec / Q* Protocol Constants ====================
 // Reference: NUT nutdrv_qx.c (megatec subdriver) and its armac USB subdriver
 namespace megatec {
-    // armac framing: command packets are a length byte (0xa0 | len) followed by
-    // the ASCII command including its terminating NUL. Replies arrive on the
+    // armac framing: command packets are a length byte (0xa0 + len) followed by
+    // the ASCII command, with no terminating NUL. Replies arrive on the
     // interrupt IN endpoint as a control byte whose low 6 bits hold the number
     // of payload bytes available, followed by the payload itself.
     static constexpr uint8_t PACKET_LENGTH_PREFIX = 0xa0;
     static constexpr uint8_t PACKET_LENGTH_MASK = 0x3f;
     static constexpr size_t PACKET_SIZE = 64;
     static constexpr size_t MAX_RESPONSE_LENGTH = 128;
-    static constexpr size_t MAX_READ_CHUNKS = 8;
+    // Replies may arrive a few bytes per report, and a Q1 reply alone is 48
+    static constexpr size_t MAX_READ_CHUNKS = 32;
 
     // Hardware answers a command in roughly 250ms and normally delivers the whole
     // reply in one 64-byte packet. These are bounded deliberately: read_data()
     // runs on the ESPHome main loop, so a silent UPS must not stall it.
     static constexpr uint32_t WRITE_TIMEOUT_MS = 500;
-    static constexpr uint32_t FIRST_READ_TIMEOUT_MS = 700;
-    static constexpr uint32_t CHUNK_READ_TIMEOUT_MS = 100;
+    static constexpr uint32_t FIRST_READ_TIMEOUT_MS = 1000;  // NUT armac: 1000ms per read
+    static constexpr uint32_t CHUNK_READ_TIMEOUT_MS = 250;
 
     // Commands confirmed on Richcomm/Lakeview hardware
     static constexpr const char* CMD_STATUS = "Q1\r";
