@@ -33,6 +33,7 @@ static constexpr size_t MAX_RESPONSE_LENGTH = 2048;
 static constexpr uint8_t DEFAULT_MAX_CLIENTS = 4;
 static constexpr uint8_t MAX_LOGIN_ATTEMPTS = 3;
 static constexpr uint32_t CLIENT_TIMEOUT_MS = 60000;  // 60 seconds
+static constexpr uint32_t SEND_TIMEOUT_MS = 2000;
 
 // NUT protocol version
 static constexpr const char* NUT_VERSION = "2.8.0";
@@ -56,6 +57,7 @@ struct NutClient {
   std::string remote_ip;
   std::string temp_username;  // For USERNAME/PASSWORD flow
   std::string temp_password;  // For USERNAME/PASSWORD flow
+  std::string rx_buffer;      // Bytes received but not yet terminated by '\n'
   
   bool is_authenticated() const { return state == ClientState::AUTHENTICATED; }
   bool is_active() const { return socket_fd >= 0 && state != ClientState::DISCONNECTED; }
@@ -69,6 +71,7 @@ struct NutClient {
     remote_ip.clear();
     temp_username.clear();
     temp_password.clear();
+    rx_buffer.clear();
   }
 };
 

@@ -224,22 +224,28 @@ void NutServerComponent::accept_clients() {
 void NutServerComponent::handle_client(NutClient &client) {
 #ifdef USE_ESP32
   char buffer[MAX_COMMAND_LENGTH];
-  int bytes_received = recv(client.socket_fd, buffer, sizeof(buffer) - 1, 0);
-  
+  int bytes_received = recv(client.socket_fd, buffer, sizeof(buffer), 0);
+
   if (bytes_received > 0) {
-    buffer[bytes_received] = '\0';
-    
-    // Remove trailing newline
-    char *newline = strchr(buffer, '\n');
-    if (newline) *newline = '\0';
-    newline = strchr(buffer, '\r');
-    if (newline) *newline = '\0';
-    
     client.last_activity = millis();
-    
-    ESP_LOGV(TAG, "Received command: %s", buffer);
-    process_command(client, std::string(buffer));
-    
+    // One recv() can hold several commands (clients pipeline USERNAME+PASSWORD)
+    // or a fragment of one, so buffer and dispatch each complete line.
+    client.rx_buffer.append(buffer, bytes_received);
+
+    size_t newline;
+    while (client.is_active() && (newline = client.rx_buffer.find('\n')) != std::string::npos) {
+      std::string line = client.rx_buffer.substr(0, newline);
+      client.rx_buffer.erase(0, newline + 1);
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      ESP_LOGV(TAG, "Received command: %s", line.c_str());
+      process_command(client, line);
+    }
+
+    if (client.is_active() && client.rx_buffer.size() > MAX_COMMAND_LENGTH) {
+      ESP_LOGW(TAG, "Command too long from %s, disconnecting", client.remote_ip.c_str());
+      disconnect_client(client);
+    }
+
   } else if (bytes_received == 0) {
     // Client disconnected
     ESP_LOGD(TAG, "Client disconnected");
@@ -736,16 +742,31 @@ void NutServerComponent::handle_legacy_list_vars(NutClient &client, const std::s
 
 bool NutServerComponent::send_response(NutClient &client, const std::string &response) {
 #ifdef USE_ESP32
-  int bytes_sent = send(client.socket_fd, response.c_str(), response.length(), 0);
-  if (bytes_sent < 0) {
+  // The socket is non-blocking: a large reply (LIST VAR) can exceed the TCP
+  // send buffer, so keep sending the remainder rather than truncating it.
+  const char *data = response.c_str();
+  size_t remaining = response.length();
+  uint32_t start = millis();
+  while (remaining > 0) {
+    int bytes_sent = send(client.socket_fd, data, remaining, 0);
+    if (bytes_sent > 0) {
+      data += bytes_sent;
+      remaining -= bytes_sent;
+      continue;
+    }
+    if (bytes_sent < 0 && (errno == EWOULDBLOCK || errno == EAGAIN) &&
+        millis() - start < SEND_TIMEOUT_MS) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
+    }
     if (errno == ECONNRESET || errno == EPIPE || errno == ENOTCONN) {
       ESP_LOGD(TAG, "Client connection reset (error %d)", errno);
     } else {
-      ESP_LOGW(TAG, "Send error: %d", errno);
+      ESP_LOGW(TAG, "Send error: %d (%u bytes unsent)", errno, (unsigned) remaining);
     }
     return false;
   }
-  return bytes_sent == (int)response.length();
+  return true;
 #else
   return false;
 #endif
