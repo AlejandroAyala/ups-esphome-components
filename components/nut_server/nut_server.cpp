@@ -275,8 +275,13 @@ void NutServerComponent::disconnect_client(NutClient &client) {
 }
 
 void NutServerComponent::cleanup_inactive_clients() {
+  // Runs on the ESPHome main loop: never wait on the server task, which may
+  // hold the lock while sending. Skipping one pass only delays the timeout.
+  std::unique_lock<std::mutex> lock(clients_mutex_, std::try_to_lock);
+  if (!lock.owns_lock()) {
+    return;
+  }
   uint32_t now = millis();
-  std::lock_guard<std::mutex> lock(clients_mutex_);
   
   for (auto &client : clients_) {
     if (client.is_active() && (now - client.last_activity) > CLIENT_TIMEOUT_MS) {
@@ -764,6 +769,9 @@ bool NutServerComponent::send_response(NutClient &client, const std::string &res
     } else {
       ESP_LOGW(TAG, "Send error: %d (%u bytes unsent)", errno, (unsigned) remaining);
     }
+    // A client that stops reading would otherwise cost SEND_TIMEOUT_MS per
+    // pipelined command; dropping it also ends handle_client()'s dispatch loop.
+    disconnect_client(client);
     return false;
   }
   return true;
