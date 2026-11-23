@@ -90,12 +90,13 @@ Consequences:
 - Never do risky work (USB bring-up) in `setup()`. A crash there kills the device
   before the API is up, and resetting inside the `safe_mode` window makes the
   bootloader **roll the firmware back**, erasing the evidence.
-- Deferring to the first `update()` is **not enough**: that still runs within
-  seconds of boot, well inside the `safe_mode` window (`boot_is_good_after`,
-  60s). rev7 crashed there and was rolled back (`OTA rollback detected!` in
-  `dump_config`, old `compiled on` date). Bring-up now waits for
-  `timing::USB_BRINGUP_MIN_UPTIME_MS` of uptime so a fault crashes into the new
-  firmware with its logs visible.
+- Bring-up runs on the first `update()`, seconds after boot and still inside the
+  `safe_mode` window (`boot_is_good_after`, 60s). A crash there rolls the
+  firmware back (`OTA rollback detected!` in `dump_config`, old `compiled on`
+  date), as rev7 did. rev7–rev15 delayed bring-up past that window so a fault
+  would crash into the new firmware with its logs visible; it was removed in
+  rev16 because it left NUT clients with `DATA-STALE` for ~90s after every boot.
+  To debug a bring-up crash, reintroduce an uptime gate in `update()`.
 
 ### 3. ESPHome log level ranking puts CONFIG *above* INFO
 

@@ -25,10 +25,6 @@ namespace timing {
     static constexpr uint32_t USB_SEMAPHORE_TIMEOUT_MS = 1000;         // 1 second  
     static constexpr uint32_t USB_CLIENT_EVENT_TIMEOUT_MS = 100;       // 100ms for event polling
 
-    // USB host bring-up waits until uptime exceeds this, so it happens after
-    // safe_mode has marked the boot good (boot_is_good_after, default 60s). Keep
-    // it above that value if safe_mode is reconfigured.
-    static constexpr uint32_t USB_BRINGUP_MIN_UPTIME_MS = 75000;
 }
 
 // ==================== Protocol Limits ====================
@@ -273,7 +269,7 @@ namespace component {
     // log identifies the running build at a glance. This is the reliable way to
     // tell a current firmware from one the bootloader has rolled back - the
     // ESPHome "compiled on" header is easy to miss when reconnecting.
-    static constexpr const char* VERSION = "rev14";
+    static constexpr const char* VERSION = "rev16";
 }
 
 namespace protocol {

@@ -32,7 +32,10 @@ static constexpr size_t MAX_COMMAND_LENGTH = 256;
 static constexpr size_t MAX_RESPONSE_LENGTH = 2048;
 static constexpr uint8_t DEFAULT_MAX_CLIENTS = 4;
 static constexpr uint8_t MAX_LOGIN_ATTEMPTS = 3;
-static constexpr uint32_t CLIENT_TIMEOUT_MS = 60000;  // 60 seconds
+// Idle limit before a client is dropped. Must exceed the polling interval of
+// persistent clients (Home Assistant polls every 60s, upsmon every 5s), or the
+// server closes the connection just as the next poll arrives.
+static constexpr uint32_t CLIENT_TIMEOUT_MS = 300000;
 static constexpr uint32_t SEND_TIMEOUT_MS = 500;
 
 // NUT protocol version

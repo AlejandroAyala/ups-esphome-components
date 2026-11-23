@@ -281,8 +281,11 @@ void NutServerComponent::cleanup_inactive_clients() {
   if (!lock.owns_lock()) {
     return;
   }
+  // Read the clock only while holding the lock: the server task stamps
+  // last_activity under it, and a stamp newer than `now` would wrap the
+  // unsigned subtraction and time out a client that just connected.
   uint32_t now = millis();
-  
+
   for (auto &client : clients_) {
     if (client.is_active() && (now - client.last_activity) > CLIENT_TIMEOUT_MS) {
       ESP_LOGD(TAG, "Client timeout, disconnecting");
@@ -303,11 +306,10 @@ void NutServerComponent::process_command(NutClient &client, const std::string &c
   std::string args = (space_pos != std::string::npos) ? 
                       command.substr(space_pos + 1) : "";
   
-  // Debug: Log all received commands
-  ESP_LOGD(TAG, "Received command: '%s' args: '%s'", cmd.c_str(), args.c_str());
-  
-  // Convert command to uppercase for comparison
   std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+
+  ESP_LOGD(TAG, "Received command: '%s' args: '%s'", cmd.c_str(),
+           cmd == "PASSWORD" ? "<redacted>" : args.c_str());
   
   // Commands that don't require authentication
   if (cmd == "HELP") {
